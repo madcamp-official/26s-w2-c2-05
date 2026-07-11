@@ -33,6 +33,7 @@ export async function login(username: string, password: string): Promise<TokenRe
 
 export function logout(): void {
   localStorage.removeItem("access_token");
+  localStorage.removeItem("username");
 }
 
 export async function connectGithub(): Promise<void> {
@@ -45,7 +46,7 @@ export async function connectGithub(): Promise<void> {
   window.location.href = authorize_url;
 }
 
-export async function getGithubStatus(): Promise<{ connected: boolean }> {
+export async function getGithubStatus(): Promise<{ connected: boolean; username: string | null }> {
   const token = localStorage.getItem("access_token");
   const res = await fetch(`${API_BASE}/auth/github/status`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},

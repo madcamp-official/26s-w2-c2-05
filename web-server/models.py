@@ -15,6 +15,7 @@ class User(SQLModel, table=True):
     username: str = Field(unique=True, index=True)
     password: str
     github_token_encrypted: Optional[str] = Field(default=None)
+    github_username: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Project(SQLModel, table=True):

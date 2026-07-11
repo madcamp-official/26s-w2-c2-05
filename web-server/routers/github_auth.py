@@ -1,6 +1,7 @@
 import os
 import secrets
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session
@@ -26,7 +27,10 @@ def github_login(
 
 @router.get("/status")
 def github_status(user: User = Depends(get_current_user)) -> dict:
-    return {"connected": user.github_token_encrypted is not None}
+    return {
+        "connected": user.github_token_encrypted is not None,
+        "username": user.github_username,
+    }
 
 
 @router.post("/disconnect")
@@ -34,9 +38,10 @@ def github_disconnect(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> dict:
     user.github_token_encrypted = None
+    user.github_username = None
     db.add(user)
     db.commit()
-    return {"connected": False}
+    return {"connected": False, "username": None}
 
 
 @router.get("/callback")
@@ -50,10 +55,12 @@ def github_callback(code: str, state: str, db: Session = Depends(get_db)):
 
     try:
         token = github_client.exchange_code_for_token(code)
-    except ValueError:
+        username = github_client.get_github_username(token)
+    except (ValueError, httpx.HTTPError):
         return RedirectResponse(f"{FRONTEND_URL}/?github=error")
 
     user.github_token_encrypted = github_client.encrypt_token(token)
+    user.github_username = username
     db.add(user)
     db.commit()
     return RedirectResponse(f"{FRONTEND_URL}/?github=connected")
