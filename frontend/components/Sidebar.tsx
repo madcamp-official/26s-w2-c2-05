@@ -40,7 +40,7 @@ export default function Sidebar() {
       <div className="mb-6 mt-2 flex items-center gap-2 text-xs">
         {githubConnected ? (
           <>
-            <span className="text-green-600">GitHub: @{githubUsername}</span>
+            <span className="text-green-600">@{githubUsername}</span>
             <button
               type="button"
               onClick={() =>
