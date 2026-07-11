@@ -3,7 +3,9 @@ from datetime import datetime, timedelta
 import bcrypt
 import jwt
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET 환경변수가 설정되지 않았습니다 (.env 확인)")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 24
 

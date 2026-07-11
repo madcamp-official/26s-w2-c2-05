@@ -34,3 +34,31 @@ export async function login(username: string, password: string): Promise<TokenRe
 export function logout(): void {
   localStorage.removeItem("access_token");
 }
+
+export async function connectGithub(): Promise<void> {
+  const token = localStorage.getItem("access_token");
+  const res = await fetch(`${API_BASE}/auth/github/login`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("GitHub 연결을 시작하지 못했습니다");
+  const { authorize_url } = await res.json();
+  window.location.href = authorize_url;
+}
+
+export async function getGithubStatus(): Promise<{ connected: boolean }> {
+  const token = localStorage.getItem("access_token");
+  const res = await fetch(`${API_BASE}/auth/github/status`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("GitHub 연결 상태를 확인하지 못했습니다");
+  return res.json();
+}
+
+export async function disconnectGithub(): Promise<void> {
+  const token = localStorage.getItem("access_token");
+  const res = await fetch(`${API_BASE}/auth/github/disconnect`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("GitHub 연결 해제에 실패했습니다");
+}

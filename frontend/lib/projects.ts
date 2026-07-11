@@ -9,6 +9,7 @@ export type Project = {
   id: string;
   name: string;
   content: string;
+  github_repo: string | null;
   created_at: string;
 };
 
@@ -42,4 +43,28 @@ export async function saveProjectContent(id: string, content: string): Promise<P
   });
   if (!res.ok) throw new Error("저장에 실패했습니다");
   return res.json();
+}
+
+export async function setGithubRepo(id: string, repo: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}/github`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ repo }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "repo 설정에 실패했습니다");
+  }
+  return res.json();
+}
+
+export async function pushToGithub(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}/push`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "push에 실패했습니다");
+  }
 }

@@ -14,6 +14,7 @@ class User(SQLModel, table=True):
     user_id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(unique=True, index=True)
     password: str
+    github_token_encrypted: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Project(SQLModel, table=True):
@@ -21,6 +22,7 @@ class Project(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     name: str
     content: str = Field(default=DEFAULT_MD)
+    github_repo: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ProjectMember(SQLModel, table=True):
@@ -28,3 +30,9 @@ class ProjectMember(SQLModel, table=True):
     project_id: str = Field(foreign_key="projects.id", primary_key=True)
     user_id: int = Field(foreign_key="users.user_id", primary_key=True)
     role: str = Field(default="member")
+
+class GithubOAuthState(SQLModel, table=True):
+    __tablename__ = "github_oauth_states"
+    state: str = Field(primary_key=True)
+    user_id: int = Field(foreign_key="users.user_id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)

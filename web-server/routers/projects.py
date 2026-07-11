@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from ..deps import get_db, get_current_user
 from ..models import Project, ProjectMember, User
+from .. import github_client
 
 router = APIRouter()
 
@@ -14,6 +15,10 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateContentRequest(BaseModel):
     content: str
+
+
+class SetGithubRepoRequest(BaseModel):
+    repo: str
 
 
 @router.post("/projects", response_model=Project)
@@ -70,3 +75,58 @@ def update_project_content(
     db.commit()
     db.refresh(project)
     return project
+
+
+@router.put("/projects/{project_id}/github", response_model=Project)
+def set_github_repo(
+    project_id: str,
+    req: SetGithubRepoRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Project:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None or member.role != "owner":
+        raise HTTPException(status_code=403, detail="owner만 repo를 지정할 수 있습니다")
+    project.github_repo = github_client.normalize_repo(req.repo)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+@router.post("/projects/{project_id}/push")
+def push_to_github(
+    project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    if not project.github_repo:
+        raise HTTPException(status_code=400, detail="이 프로젝트에 연결된 GitHub repo가 없습니다")
+
+    owner_membership = db.exec(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id, ProjectMember.role == "owner"
+        )
+    ).first()
+    owner = db.get(User, owner_membership.user_id)
+    if owner.github_token_encrypted is None:
+        raise HTTPException(status_code=400, detail="프로젝트 owner가 GitHub 계정을 연결하지 않았습니다")
+
+    token = github_client.decrypt_token(owner.github_token_encrypted)
+    try:
+        github_client.push_file(
+            token=token,
+            repo=project.github_repo,
+            path="CLAUDE.md",
+            content=project.content,
+            message=f"Update CLAUDE.md via {project.name}",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
