@@ -1,13 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProject } from "@/lib/projects";
+import { logout } from "@/lib/auth";
 
 export default function Home() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [authorized, setAuthorized] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!localStorage.getItem("access_token")) {
+      router.push("/login");
+    } else {
+      setAuthorized(true);
+    }
+  }, [router]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -22,8 +32,22 @@ export default function Home() {
     }
   }
 
+  function handleLogout() {
+    logout();
+    router.push("/login");
+  }
+
+  if (!authorized) return null;
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
+    <div className="relative flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="absolute right-6 top-6 rounded-md border border-ink/15 px-3 py-1.5 text-sm text-ink/70 transition hover:bg-ink/5"
+      >
+        로그아웃
+      </button>
       <div>
         <h1 className="text-xl font-semibold text-ink">
           프로젝트를 선택하거나 새로 만들어보세요

@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { login } from "@/lib/auth";
+import { signup } from "@/lib/auth";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +14,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      const { access_token } = await login(username, password);
+      const { access_token } = await signup(username, password);
       localStorage.setItem("access_token", access_token);
       router.push("/");
     } catch (err) {
@@ -26,7 +25,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6">
       <div>
-        <h1 className="text-xl font-semibold text-ink">로그인</h1>
+        <h1 className="text-xl font-semibold text-ink">회원가입</h1>
         <p className="mt-2 text-sm text-ink/60">
           아이디와 비밀번호를 입력해주세요.
         </p>
@@ -53,16 +52,13 @@ export default function LoginPage() {
           type="submit"
           className="rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark"
         >
-          로그인
+          회원가입
         </button>
         {error && (
           <p role="alert" className="text-sm text-red-600">
             {error}
           </p>
         )}
-        <Link href="/signup" className="text-center text-sm text-ink/60 hover:underline">
-          계정이 없으신가요? 회원가입
-        </Link>
       </form>
     </div>
   );
