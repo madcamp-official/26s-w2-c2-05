@@ -1,18 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  getProject,
-  getProjectContent,
-  saveProjectContent,
-  type ProjectMeta,
-} from "@/lib/projects";
-
-const DEFAULT_MD = `# CLAUDE.md
-
-이 프로젝트에서 Claude가 지켜야 할 규칙을 적어보세요.
-`;
+import { getProject, saveProjectContent, type Project } from "@/lib/projects";
 
 type Recommendation = {
   id: string;
@@ -37,19 +27,35 @@ export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
 
-  const [project, setProject] = useState<ProjectMeta | undefined>();
+  const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lastSavedContent = useRef<string | null>(null);
 
   useEffect(() => {
-    setProject(getProject(projectId));
-    setContent(getProjectContent(projectId) || DEFAULT_MD);
-    setApplied(new Set());
+    lastSavedContent.current = null;
+    getProject(projectId)
+      .then((p) => {
+        setProject(p);
+        setContent(p.content);
+        setApplied(new Set());
+        lastSavedContent.current = p.content;
+      })
+      .catch((err) => setError((err as Error).message));
   }, [projectId]);
 
   useEffect(() => {
-    if (content) saveProjectContent(projectId, content);
+    if (lastSavedContent.current === null || content === lastSavedContent.current) return;
+    const timeout = setTimeout(() => {
+      saveProjectContent(projectId, content)
+        .then(() => {
+          lastSavedContent.current = content;
+        })
+        .catch((err) => setError((err as Error).message));
+    }, 500);
+    return () => clearTimeout(timeout);
   }, [projectId, content]);
 
   function applyRecommendation(rec: Recommendation) {
@@ -83,6 +89,12 @@ export default function ProjectPage() {
           세션에서 발견된 패턴을 참고해서 이 프로젝트의 CLAUDE.md를 다듬어보세요.
         </p>
       </header>
+
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600">
+          {error}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
         <section>

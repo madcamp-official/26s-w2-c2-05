@@ -1,40 +1,40 @@
-export type ProjectMeta = {
+const API_BASE = "http://localhost:8000";
+
+export type Project = {
   id: string;
   name: string;
-  createdAt: string;
+  content: string;
+  created_at: string;
 };
 
-const PROJECTS_KEY = "projects";
-
-function projectContentKey(id: string): string {
-  return `project-md-${id}`;
+export async function listProjects(): Promise<Project[]> {
+  const res = await fetch(`${API_BASE}/projects`);
+  if (!res.ok) throw new Error("프로젝트 목록을 불러오지 못했습니다");
+  return res.json();
 }
 
-export function listProjects(): ProjectMeta[] {
-  if (typeof window === "undefined") return [];
-  const raw = localStorage.getItem(PROJECTS_KEY);
-  return raw ? (JSON.parse(raw) as ProjectMeta[]) : [];
+export async function getProject(id: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}`);
+  if (!res.ok) throw new Error("프로젝트를 찾을 수 없습니다");
+  return res.json();
 }
 
-export function getProject(id: string): ProjectMeta | undefined {
-  return listProjects().find((project) => project.id === id);
+export async function createProject(name: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("프로젝트 생성에 실패했습니다");
+  return res.json();
 }
 
-export function createProject(name: string): ProjectMeta {
-  const project: ProjectMeta = {
-    id: crypto.randomUUID(),
-    name,
-    createdAt: new Date().toISOString(),
-  };
-  localStorage.setItem(PROJECTS_KEY, JSON.stringify([...listProjects(), project]));
-  return project;
-}
-
-export function getProjectContent(id: string): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(projectContentKey(id)) ?? "";
-}
-
-export function saveProjectContent(id: string, content: string): void {
-  localStorage.setItem(projectContentKey(id), content);
+export async function saveProjectContent(id: string, content: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error("저장에 실패했습니다");
+  return res.json();
 }

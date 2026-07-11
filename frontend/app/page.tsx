@@ -6,14 +6,20 @@ import { createProject } from "@/lib/projects";
 
 export default function Home() {
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  function handleCreate(e: React.FormEvent) {
+  async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    const project = createProject(trimmed);
-    router.push(`/project/${project.id}`);
+    setError(null);
+    try {
+      const project = await createProject(trimmed);
+      router.push(`/project/${project.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   return (
@@ -39,6 +45,11 @@ export default function Home() {
         >
           프로젝트 만들기
         </button>
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
       </form>
     </div>
   );

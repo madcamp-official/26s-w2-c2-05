@@ -3,15 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { listProjects, type ProjectMeta } from "@/lib/projects";
+import { listProjects, type Project } from "@/lib/projects";
 
 export default function Sidebar() {
-  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const pathname = usePathname();
 
   useEffect(() => {
-    setProjects(listProjects());
+    listProjects()
+      .then(setProjects)
+      .catch(() => setProjects([]));
   }, [pathname]);
+
+  if (pathname === "/login") return null;
 
   return (
     <aside className="sticky top-0 flex h-screen w-64 flex-shrink-0 flex-col border-r border-ink/10 bg-white p-4">
