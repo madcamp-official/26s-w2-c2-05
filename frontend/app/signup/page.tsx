@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signup } from "@/lib/auth";
 
@@ -8,7 +8,16 @@ export default function SignupPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (localStorage.getItem("access_token")) {
+      router.push("/");
+    } else {
+      setChecked(true);
+    }
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,6 +30,8 @@ export default function SignupPage() {
       setError((err as Error).message);
     }
   }
+
+  if (!checked) return null;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6">

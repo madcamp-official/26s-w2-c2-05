@@ -22,3 +22,9 @@ class Project(SQLModel, table=True):
     name: str
     content: str = Field(default=DEFAULT_MD)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ProjectMember(SQLModel, table=True):
+    __tablename__ = "project_members"
+    project_id: str = Field(foreign_key="projects.id", primary_key=True)
+    user_id: int = Field(foreign_key="users.user_id", primary_key=True)
+    role: str = Field(default="member")

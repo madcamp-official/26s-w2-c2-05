@@ -19,7 +19,9 @@ export default function Sidebar() {
 
   return (
     <aside className="sticky top-0 flex h-screen w-64 flex-shrink-0 flex-col border-r border-ink/10 bg-white p-4">
-      <h2 className="mb-6 text-sm font-semibold text-ink/70">내 프로젝트</h2>
+      <Link href="/" className="mb-6 block text-sm font-semibold text-ink/70 hover:text-ink">
+        내 프로젝트
+      </Link>
       <nav className="flex-1 space-y-1 overflow-y-auto">
         {projects.length === 0 && (
           <p className="text-sm text-ink/40">아직 프로젝트가 없어요.</p>
