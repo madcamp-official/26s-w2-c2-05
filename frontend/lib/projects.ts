@@ -131,3 +131,76 @@ export async function getRevision(id: string, revisionId: string): Promise<Revis
   if (!res.ok) throw new Error("변경 이력을 불러오지 못했습니다");
   return res.json();
 }
+
+export type HookPayload = {
+  event: string;
+  matcher: string;
+  command: string;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
+export type ClaudeMdPayload = {
+  suggested_text: string;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
+export type PersonalRecommendation = {
+  type: "hook" | "claude_md";
+  payload: HookPayload | ClaudeMdPayload;
+};
+
+export type TeamGroupUpdate = {
+  id: string;
+  type: "hook" | "claude_md";
+  representative_text: string;
+  affected_members: number;
+  promoted: boolean;
+};
+
+export type UploadSessionResult = {
+  session_id: string;
+  status: "processed" | "no_patterns";
+  personal_recommendations: PersonalRecommendation[];
+  updated_team_groups: TeamGroupUpdate[];
+};
+
+export async function uploadSession(id: string, file: File): Promise<UploadSessionResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/projects/${id}/sessions`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "세션 업로드에 실패했습니다");
+  }
+  return res.json();
+}
+
+export async function getMyRecommendations(id: string): Promise<PersonalRecommendation[]> {
+  const res = await fetch(`${API_BASE}/projects/${id}/recommendations/me`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("내 추천을 불러오지 못했습니다");
+  return res.json();
+}
+
+export type TeamRecommendation = {
+  id: string;
+  type: "hook" | "claude_md";
+  representative_text: string;
+  affected_members: number;
+  evidence: { user_id: number; original_text: string }[];
+};
+
+export async function getTeamRecommendations(id: string): Promise<TeamRecommendation[]> {
+  const res = await fetch(`${API_BASE}/projects/${id}/recommendations/team`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("팀 추천을 불러오지 못했습니다");
+  return res.json();
+}
