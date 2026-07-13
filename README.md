@@ -107,16 +107,35 @@
 
 ### 실행 방법
 
+서비스 3개(`ai-server`, `web-server`, `frontend`)를 각각 별도 터미널에서 띄운다.
+`web-server`는 `ai-server` 없이도 뜨지만, 실제 분석 기능은 `ai-server`가 8001번
+포트에 떠 있어야 동작한다. `frontend`는 `web-server`(8000)로 `/api/*`를 프록시하므로
+`web-server`가 먼저 떠 있어야 한다.
+
 ```bash
-# 환경 설정
-cp .env.example .env
-
-# 의존성 설치
-npm install   # 또는 pip install -r requirements.txt 등
-
-# 실행
-npm run dev   # 또는 python main.py 등
+# 1. AI 서버 (:8001) — docs/sprints/2026-07-12-ai-server-sprint.md 완료 후 존재
+cd ai-server
+cp .env.example .env        # GEMINI_API_KEY 채우기
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8001
 ```
+
+```bash
+# 2. 웹 서버 (:8000)
+cd web-server
+cp .env.example .env        # GITHUB_CLIENT_ID/SECRET, JWT_SECRET, ENCRYPTION_KEY 채우기
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+```bash
+# 3. 프론트엔드 (:3000)
+cd frontend
+npm install
+npm run dev
+```
+
+브라우저에서 `http://localhost:3000` 접속.
 
 ### 기술 구성
 

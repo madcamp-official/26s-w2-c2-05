@@ -277,6 +277,23 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 | 프론트 | Next.js/Vite + `react-dropzone` | 파일 업로드는 동기 요청-응답, 폴링/WebSocket 불필요 |
 | 인프라 | KAIST VM (Week 1 재사용) | |
 
+### 디렉토리 구조 (2026-07-12 확정)
+
+```
+26s-w2-c2-05/
+├── ai-server/          # AI 서버 (Gemini /analyze, /embed) — 예정, docs/sprints/2026-07-12-ai-server-sprint.md
+├── web-server/         # 웹 서버 (FastAPI, SQLite, 비즈니스 로직) — 이미 존재
+├── frontend/           # Next.js — 이미 존재
+├── docs/
+│   ├── sprints/        # 스프린트별 태스크 목록 (docs/sprints/YYYY-MM-DD-*.md)
+│   └── superpowers/plans/  # TDD 구현 플랜 (docs/superpowers/plans/YYYY-MM-DD-*.md)
+├── CLAUDE.md           # 개발 워크플로우/규칙 (항상 자동 로드)
+├── DESIGN.md           # 제품/아키텍처 설계 (이 문서)
+└── README.md           # 과제 제출용 문서
+```
+
+새 폴더를 최상위에 만들기 전엔 이 구조에 맞는지 먼저 확인한다.
+
 ### DB 스키마
 
 ```sql

@@ -45,6 +45,9 @@ Surgical Changes, Goal-Driven Execution)을 통합한 이 프로젝트의 개발
 하므로 별도 로그 파일(결정/리뷰/테스트 기록용)은 두지 않기로 결정함(2026-07-11,
 Simplicity First 근거).
 
+0. **매일 작업 시작 시**: `docs/sprints/`의 해당 스프린트 문서를 먼저 확인하고,
+   그날 분량의 태스크부터 순서대로(의존성 순서 지켜서) 진행한다. 스프린트 문서에
+   없는 작업을 임의로 먼저 하지 않는다 — 순서가 바뀌면 의존성이 깨질 수 있음.
 1. **요구사항 정의**: 스프린트 시작 전 애매한 부분이 있으면 `superpowers:brainstorming`으로
    짧게 정리 → `superpowers:writing-plans`로 검증 가능한 계획으로 변환. 매 스프린트마다
    격식 차릴 필요는 없고, 애매함이 실제로 있을 때만.
@@ -60,7 +63,13 @@ Simplicity First 근거).
       `superpowers:requesting-code-review`/`receiving-code-review` 절차로 "요청과 무관한
       변경 없는지" 확인.
    2. 통과하면 `document-release`(gstack)로 README/CHANGELOG 갱신.
-5. **머지**: 스프린트 단위로 묶어서(태스크마다 X), `superpowers:finishing-a-development-branch`.
+5. **브랜치/머지** (2026-07-12 확정): `main`=배포 가능한 안정 브랜치, `develop`=통합
+   브랜치. 각자 트랙은 `feature/ai-server`, `feature/web-server`처럼 `feature/*`
+   브랜치에서 작업(`superpowers:using-git-worktrees`로 작업공간 분리) → `develop`으로
+   merge → 스프린트 끝나면 `develop → main`. **`develop`에 직접 push 금지** — 오늘
+   직접 push하다가 두 사람 히스토리가 갈라져서 충돌 처리한 적 있음(2026-07-12),
+   재발 방지. 머지는 스프린트 단위로 묶어서(태스크마다 X), `superpowers:finishing-a-development-branch`.
+   디렉토리 구조는 `DESIGN.md`의 "디렉토리 구조" 절 참고(여기서 중복 안 함).
 6. **보안 게이트**: GitHub API/토큰 관련 코드가 바뀌었거나 `develop → main` 머지 직전엔
    `/security-review` 또는 `/cso`(gstack)를 반드시 돌린다.
 7. **버그 발생 시**: 즉흥 패치 대신 `superpowers:systematic-debugging`으로 접근 —
