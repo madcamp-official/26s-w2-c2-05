@@ -1,0 +1,76 @@
+import asyncio
+
+from google.genai import errors
+
+from .rate_limit import gemini_analyze_limiter
+from .schemas import AnalyzeResponse
+
+GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_TIMEOUT_SECONDS = 15
+
+SYSTEM_INSTRUCTION = """너는 Claude Code 세션 로그에서 반복되는 행동 패턴을 보고,
+그 사람에게 도움이 될 자동화 규칙(hook)이나 프로젝트 규칙(claude_md)을 제안하는
+어시스턴트다. 결과는 비개발자도 이해할 수 있는 plain language로 설명해야 한다.
+
+판단 기준:
+- hook: 매번 결정론적으로 자동 실행돼야 하는 단일 트리거→단일 명령. 판단 불필요.
+  예: ".ts 파일 수정 후 항상 npm test를 실행한다" → PostToolUse 이벤트, Edit
+  matcher, "npm test" 커맨드.
+- claude_md: 세션마다 컨텍스트로 스며들면 되는 단일 사실/선호.
+  예: "탭 대신 스페이스를 쓴다" → CLAUDE.md에 넣을 한 줄 규칙.
+
+패턴이 3회 미만 반복된 것으로 보이면 후보로 만들지 마라. reason 필드에는 항상
+"왜 이걸 추천하는지"를 유저의 실제 행동을 근거로 설명해라."""
+
+
+class GeminiCallFailed(Exception):
+    pass
+
+
+class GeminiQuotaExceeded(GeminiCallFailed):
+    """Gemini가 실제로 429(RESOURCE_EXHAUSTED)를 반환한 경우.
+
+    RpdCounter(rate_limit.py)가 대부분의 쿼터 초과를 사전 차단하므로 이 경로는
+    레이스 컨디션에서만 발생하는 희귀 케이스다. 429는 현재 RPM 윈도우가 아직
+    풀리지 않았다는 뜻이라 같은 호출 안에서 즉시 재시도해도 성공 가능성이
+    낮고, 오히려 다음 재시도가 분당 쿼터를 한 번 더 갉아먹으므로 재시도하지
+    않고 즉시 실패시킨다(fail fast). google-genai==1.0.0의
+    `google.genai.errors.ClientError`는 HTTP 상태코드를 `.code`에 담아 실어
+    주므로 429를 다른 4xx/5xx/타임아웃/malformed 실패와 깔끔하게 구분할 수
+    있다(Task 3 investigation, 2026-07-13).
+    """
+
+    pass
+
+
+async def call_gemini_analyze(client, pattern_summary: str) -> AnalyzeResponse:
+    """client는 google.genai.Client 인스턴스 (또는 테스트용 가짜).
+    client.aio.models.generate_content(**kwargs) -> awaitable[response]
+    response.parsed 가 response_schema로 지정한 pydantic 인스턴스여야 한다.
+    """
+    last_error: Exception | None = None
+    async with gemini_analyze_limiter:
+        for attempt in range(2):  # 최초 시도 + 재시도 1회
+            try:
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=f"다음은 전처리된 세션 로그 패턴입니다:\n{pattern_summary}",
+                        config={
+                            "system_instruction": SYSTEM_INSTRUCTION,
+                            "response_mime_type": "application/json",
+                            "response_schema": AnalyzeResponse,
+                        },
+                    ),
+                    timeout=GEMINI_TIMEOUT_SECONDS,
+                )
+                if response.parsed is None:
+                    raise GeminiCallFailed("Gemini가 스키마에 맞는 응답을 생성하지 못함")
+                return response.parsed
+            except errors.ClientError as e:
+                if e.code == 429:
+                    raise GeminiQuotaExceeded(str(e)) from e
+                last_error = e  # 429가 아닌 4xx는 일반 재시도 대상
+            except Exception as e:  # 타임아웃/malformed 등을 광범위하게 재시도 대상으로 취급
+                last_error = e
+        raise GeminiCallFailed(str(last_error)) from last_error
