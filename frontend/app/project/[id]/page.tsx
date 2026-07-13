@@ -10,6 +10,7 @@ import {
   inviteMember,
   listRevisions,
   getRevision,
+  renameProject,
   type Project,
   type Revision,
   type RevisionDetail,
@@ -45,6 +46,8 @@ export default function ProjectPage() {
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
   const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
@@ -114,6 +117,27 @@ export default function ProjectPage() {
     }
   }
 
+  function startEditingName() {
+    setNameInput(project?.name ?? "");
+    setEditingName(true);
+  }
+
+  async function submitEditingName() {
+    const name = nameInput.trim();
+    if (!name || name === project?.name) {
+      setEditingName(false);
+      return;
+    }
+    try {
+      const updated = await renameProject(projectId, name);
+      setProject(updated);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setEditingName(false);
+    }
+  }
+
   function handleDownload() {
     const blob = new Blob([content], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -180,9 +204,28 @@ export default function ProjectPage() {
     <main className="mx-auto max-w-5xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">
-            {project?.name ?? "프로젝트"}
-          </h1>
+          {editingName ? (
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitEditingName();
+                if (e.key === "Escape") setEditingName(false);
+              }}
+              onBlur={submitEditingName}
+              autoFocus
+              className="rounded-md border border-orange px-2 py-1 text-2xl font-semibold text-ink focus:outline-none focus:ring-2 focus:ring-orange/30"
+            />
+          ) : (
+            <h1
+              onClick={() => project?.role === "owner" && startEditingName()}
+              className={`text-2xl font-semibold text-ink ${
+                project?.role === "owner" ? "cursor-pointer hover:underline" : ""
+              }`}
+            >
+              {project?.name ?? "프로젝트"}
+            </h1>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
           {onlineUsers.map((u) => (

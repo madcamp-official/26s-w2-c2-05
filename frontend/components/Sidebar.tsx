@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { listProjects, type Project } from "@/lib/projects";
+import { listProjects, deleteProject, type Project } from "@/lib/projects";
 import { connectGithub, disconnectGithub, getGithubStatus } from "@/lib/auth";
 
 export default function Sidebar() {
@@ -35,21 +35,43 @@ export default function Sidebar() {
   const ownedProjects = projects.filter((p) => p.role === "owner");
   const memberProjects = projects.filter((p) => p.role !== "owner");
 
+  async function handleDeleteProject(projectId: string) {
+    if (!confirm("이 프로젝트를 삭제할까요? 되돌릴 수 없습니다.")) return;
+    try {
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   function renderProjectLink(project: Project) {
     const href = `/project/${project.id}`;
     const isActive = pathname === href;
+
     return (
-      <Link
-        key={project.id}
-        href={href}
-        className={`block truncate rounded-lg px-3 py-2 text-sm shadow-sm transition ${
-          isActive
-            ? "bg-orange font-medium text-white"
-            : "bg-orange-light text-ink/80 hover:bg-orange-light/70"
-        }`}
-      >
-        {project.name}
-      </Link>
+      <div key={project.id} className="flex items-center gap-1">
+        <Link
+          href={href}
+          className={`block flex-1 truncate rounded-lg px-3 py-2 text-sm shadow-sm transition ${
+            isActive
+              ? "bg-orange font-medium text-white"
+              : "bg-orange-light text-ink/80 hover:bg-orange-light/70"
+          }`}
+        >
+          {project.name}
+        </Link>
+        {project.role === "owner" && (
+          <button
+            type="button"
+            onClick={() => handleDeleteProject(project.id)}
+            aria-label="프로젝트 삭제"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-ink/40 transition hover:bg-red-50 hover:text-red-600"
+          >
+            ×
+          </button>
+        )}
+      </div>
     );
   }
 

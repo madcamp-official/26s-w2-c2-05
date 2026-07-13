@@ -47,6 +47,10 @@ class UpdateContentRequest(BaseModel):
     content: str
 
 
+class RenameProjectRequest(BaseModel):
+    name: str
+
+
 class SetGithubRepoRequest(BaseModel):
     repo: str
 
@@ -117,6 +121,26 @@ def update_project_content(
     return _to_project_out(project, member.role)
 
 
+@router.put("/projects/{project_id}/name", response_model=ProjectOut)
+def rename_project(
+    project_id: str,
+    req: RenameProjectRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectOut:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None or member.role != "owner":
+        raise HTTPException(status_code=403, detail="owner만 이름을 수정할 수 있습니다")
+    project.name = req.name
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return _to_project_out(project, member.role)
+
+
 class RevisionListOut(BaseModel):
     id: str
     created_at: datetime
@@ -169,6 +193,34 @@ def get_revision(
         username=author.username,
         content=revision.content,
     )
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(
+    project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None or member.role != "owner":
+        raise HTTPException(status_code=403, detail="owner만 삭제할 수 있습니다")
+
+    revisions = db.exec(
+        select(ProjectRevision).where(ProjectRevision.project_id == project_id)
+    ).all()
+    for revision in revisions:
+        db.delete(revision)
+
+    members = db.exec(
+        select(ProjectMember).where(ProjectMember.project_id == project_id)
+    ).all()
+    for m in members:
+        db.delete(m)
+
+    db.delete(project)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/projects/{project_id}/invite")

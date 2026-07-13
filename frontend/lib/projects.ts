@@ -36,6 +36,19 @@ export async function createProject(name: string): Promise<Project> {
   return res.json();
 }
 
+export async function renameProject(id: string, name: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}/name`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "이름 수정에 실패했습니다");
+  }
+  return res.json();
+}
+
 export async function saveProjectContent(id: string, content: string): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${id}`, {
     method: "PUT",
@@ -68,6 +81,17 @@ export async function inviteMember(id: string, username: string): Promise<void> 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? "초대에 실패했습니다");
+  }
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "프로젝트 삭제에 실패했습니다");
   }
 }
 
