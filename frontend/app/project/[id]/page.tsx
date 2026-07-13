@@ -14,6 +14,8 @@ import {
   uploadSession,
   getMyRecommendations,
   getTeamRecommendations,
+  applyRecommendationGroup,
+  applyPersonalRecommendationApi,
   type Project,
   type Revision,
   type RevisionDetail,
@@ -62,8 +64,9 @@ export default function ProjectPage() {
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [personalRecs, setPersonalRecs] = useState<PersonalRecommendation[]>([]);
   const [teamRecs, setTeamRecs] = useState<TeamRecommendation[]>([]);
-  const [appliedPersonal, setAppliedPersonal] = useState<Set<number>>(new Set());
-  const [appliedTeam, setAppliedTeam] = useState<Set<string>>(new Set());
+  const [pendingAppliedPersonalIds, setPendingAppliedPersonalIds] = useState<Set<string>>(new Set());
+  const [pendingAppliedGroupIds, setPendingAppliedGroupIds] = useState<Set<string>>(new Set());
+  const [recTab, setRecTab] = useState<"my" | "team">("my");
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -130,7 +133,7 @@ export default function ProjectPage() {
       ]);
       setPersonalRecs(myRecs);
       setTeamRecs(latestTeamRecs);
-      setAppliedPersonal(new Set());
+      setPendingAppliedPersonalIds(new Set());
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -149,9 +152,9 @@ export default function ProjectPage() {
     return `- (hook 제안) "${hook.command}"을(를) ${hook.event} 시 자동 실행 — ${hook.reason}`;
   }
 
-  function applyPersonalRecommendation(index: number, rec: PersonalRecommendation) {
+  function applyPersonalRecommendation(rec: PersonalRecommendation) {
     setContent((prev) => `${prev.trimEnd()}\n${formatCandidateForContent(rec.type, rec.payload)}\n`);
-    setAppliedPersonal((prev) => new Set(prev).add(index));
+    setPendingAppliedPersonalIds((prev) => new Set(prev).add(rec.id));
   }
 
   function applyTeamRecommendation(rec: TeamRecommendation) {
@@ -160,7 +163,7 @@ export default function ProjectPage() {
         ? `- ${rec.representative_text}`
         : `- (hook 제안) "${rec.representative_text}" 자동 실행`;
     setContent((prev) => `${prev.trimEnd()}\n${line}\n`);
-    setAppliedTeam((prev) => new Set(prev).add(rec.id));
+    setPendingAppliedGroupIds((prev) => new Set(prev).add(rec.id));
   }
 
   async function handleSave() {
@@ -171,6 +174,28 @@ export default function ProjectPage() {
       setProject(updated);
       const latest = await listRevisions(projectId);
       setRevisions(latest);
+
+      if (pendingAppliedGroupIds.size > 0) {
+        await Promise.all(
+          Array.from(pendingAppliedGroupIds).map((groupId) =>
+            applyRecommendationGroup(projectId, groupId)
+          )
+        );
+        setPendingAppliedGroupIds(new Set());
+        const latestTeamRecs = await getTeamRecommendations(projectId);
+        setTeamRecs(latestTeamRecs);
+      }
+
+      if (pendingAppliedPersonalIds.size > 0) {
+        await Promise.all(
+          Array.from(pendingAppliedPersonalIds).map((recId) =>
+            applyPersonalRecommendationApi(projectId, recId)
+          )
+        );
+        setPendingAppliedPersonalIds(new Set());
+        const latestMyRecs = await getMyRecommendations(projectId);
+        setPersonalRecs(latestMyRecs);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -485,51 +510,74 @@ export default function ProjectPage() {
               </code>
               <br />
               세션 JSONL 파일은 위 링크 폴더안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
+              <br />
+              MAC은 command shift .을 해야 숨김파일이 보임
             </p>
           </div>
 
           <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-sm font-medium text-ink/70">내 추천</h2>
-            {personalRecs.length === 0 ? (
-              <p className="text-sm text-ink/40">아직 추천이 없습니다</p>
-            ) : (
-              <div className="flex gap-3 overflow-x-auto pb-2">
-                {personalRecs.map((rec, i) => {
-                  const isApplied = appliedPersonal.has(i);
-                  return (
-                    <div
-                      key={i}
-                      className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
-                    >
-                      <p className="text-sm text-ink/80">{rec.payload.reason}</p>
-                      <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
-                        {rec.type === "claude_md"
-                          ? (rec.payload as ClaudeMdPayload).suggested_text
-                          : `${(rec.payload as HookPayload).event} → ${(rec.payload as HookPayload).command}`}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => applyPersonalRecommendation(i, rec)}
-                        disabled={isApplied}
-                        className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
-                      >
-                        {isApplied ? "반영됨" : "적용하기"}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+            <div className="mb-2 flex gap-1">
+              <button
+                type="button"
+                onClick={() => setRecTab("my")}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                  recTab === "my"
+                    ? "bg-orange text-white"
+                    : "text-ink/60 hover:bg-orange-light/40"
+                }`}
+              >
+                My
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecTab("team")}
+                className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                  recTab === "team"
+                    ? "bg-orange text-white"
+                    : "text-ink/60 hover:bg-orange-light/40"
+                }`}
+              >
+                Team
+              </button>
+            </div>
 
-          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-sm font-medium text-ink/70">팀 추천</h2>
-            {teamRecs.length === 0 ? (
+            {recTab === "my" ? (
+              personalRecs.length === 0 ? (
+                <p className="text-sm text-ink/40">아직 추천이 없습니다</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {personalRecs.map((rec) => {
+                    const isApplied = rec.applied || pendingAppliedPersonalIds.has(rec.id);
+                    return (
+                      <div
+                        key={rec.id}
+                        className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
+                      >
+                        <p className="text-sm text-ink/80">{rec.payload.reason}</p>
+                        <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
+                          {rec.type === "claude_md"
+                            ? (rec.payload as ClaudeMdPayload).suggested_text
+                            : `${(rec.payload as HookPayload).event} → ${(rec.payload as HookPayload).command}`}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => applyPersonalRecommendation(rec)}
+                          disabled={isApplied}
+                          className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
+                        >
+                          {isApplied ? "반영됨" : "적용하기"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            ) : teamRecs.length === 0 ? (
               <p className="text-sm text-ink/40">아직 팀 추천이 없습니다</p>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-2">
                 {teamRecs.map((rec) => {
-                  const isApplied = appliedTeam.has(rec.id);
+                  const isApplied = rec.applied || pendingAppliedGroupIds.has(rec.id);
                   return (
                     <div
                       key={rec.id}
