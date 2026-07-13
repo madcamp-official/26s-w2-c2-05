@@ -1,6 +1,8 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from google import genai
 
@@ -8,6 +10,8 @@ from .schemas import AnalyzeRequest, AnalyzeEndpointResponse, EmbedRequest, Embe
 from .gemini_client import call_gemini_analyze, GeminiCallFailed, GeminiQuotaExceeded
 from .embed_client import call_gemini_embed
 from .rate_limit import gemini_analyze_rpd_counter
+
+load_dotenv(Path(__file__).parent / ".env")
 
 app = FastAPI()
 
