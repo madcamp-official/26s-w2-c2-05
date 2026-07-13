@@ -11,6 +11,7 @@ export type Project = {
   content: string;
   github_repo: string | null;
   created_at: string;
+  role: "owner" | "member";
 };
 
 export async function listProjects(): Promise<Project[]> {
@@ -56,6 +57,18 @@ export async function setGithubRepo(id: string, repo: string): Promise<Project> 
     throw new Error(body?.detail ?? "repo 설정에 실패했습니다");
   }
   return res.json();
+}
+
+export async function inviteMember(id: string, username: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "초대에 실패했습니다");
+  }
 }
 
 export async function pushToGithub(id: string): Promise<void> {

@@ -32,6 +32,27 @@ export default function Sidebar() {
 
   if (pathname === "/login" || pathname === "/signup") return null;
 
+  const ownedProjects = projects.filter((p) => p.role === "owner");
+  const memberProjects = projects.filter((p) => p.role !== "owner");
+
+  function renderProjectLink(project: Project) {
+    const href = `/project/${project.id}`;
+    const isActive = pathname === href;
+    return (
+      <Link
+        key={project.id}
+        href={href}
+        className={`block truncate rounded-lg px-3 py-2 text-sm shadow-sm transition ${
+          isActive
+            ? "bg-orange font-medium text-white"
+            : "bg-orange-light text-ink/80 hover:bg-orange-light/70"
+        }`}
+      >
+        {project.name}
+      </Link>
+    );
+  }
+
   return (
     <aside className="sticky top-0 flex h-screen w-64 flex-shrink-0 flex-col border-r border-ink/10 bg-white p-4">
       <Link href="/" className="block text-sm font-semibold text-ink/70 hover:text-ink">
@@ -71,27 +92,24 @@ export default function Sidebar() {
           {error}
         </p>
       )}
-      <nav className="flex-1 space-y-1 overflow-y-auto">
-        {projects.length === 0 && (
-          <p className="text-sm text-ink/40">아직 프로젝트가 없어요.</p>
+      <nav className="flex-1 space-y-4 overflow-y-auto">
+        {ownedProjects.length > 0 && (
+          <div className="space-y-1">
+            {ownedProjects.map(renderProjectLink)}
+          </div>
         )}
-        {projects.map((project) => {
-          const href = `/project/${project.id}`;
-          const isActive = pathname === href;
-          return (
-            <Link
-              key={project.id}
-              href={href}
-              className={`block truncate rounded-lg px-3 py-2 text-sm shadow-sm transition ${
-                isActive
-                  ? "bg-orange font-medium text-white"
-                  : "bg-orange-light text-ink/80 hover:bg-orange-light/70"
-              }`}
-            >
-              {project.name}
-            </Link>
-          );
-        })}
+        <div>
+          <p className="mb-1 px-3 text-xs font-medium text-ink/40">
+            참여하고 있는 프로젝트
+          </p>
+          {memberProjects.length > 0 ? (
+            <div className="space-y-1">
+              {memberProjects.map(renderProjectLink)}
+            </div>
+          ) : (
+            <p className="px-3 text-sm text-ink/40">참여중인 프로젝트가 없습니다</p>
+          )}
+        </div>
       </nav>
     </aside>
   );

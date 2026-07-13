@@ -125,7 +125,8 @@ uvicorn main:app --reload --port 8001
 cd web-server
 cp .env.example .env        # GITHUB_CLIENT_ID/SECRET, JWT_SECRET, ENCRYPTION_KEY 채우기
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+cd ..                       # main.py가 상대 임포트를 쓰므로 반드시 저장소 루트에서 실행
+uvicorn web-server.main:app --reload --port 8000
 ```
 
 ```bash

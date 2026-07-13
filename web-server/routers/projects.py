@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
@@ -7,6 +9,26 @@ from ..models import Project, ProjectMember, User
 from .. import github_client
 
 router = APIRouter()
+
+
+class ProjectOut(BaseModel):
+    id: str
+    name: str
+    content: str
+    github_repo: str | None
+    created_at: datetime
+    role: str
+
+
+def _to_project_out(project: Project, role: str) -> ProjectOut:
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        content=project.content,
+        github_repo=project.github_repo,
+        created_at=project.created_at,
+        role=role,
+    )
 
 
 class CreateProjectRequest(BaseModel):
@@ -21,69 +43,99 @@ class SetGithubRepoRequest(BaseModel):
     repo: str
 
 
-@router.post("/projects", response_model=Project)
+class InviteMemberRequest(BaseModel):
+    username: str
+
+
+@router.post("/projects", response_model=ProjectOut)
 def create_project(
     req: CreateProjectRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Project:
+) -> ProjectOut:
     project = Project(name=req.name)
     db.add(project)
     db.add(ProjectMember(project_id=project.id, user_id=user.user_id, role="owner"))
     db.commit()
     db.refresh(project)
-    return project
+    return _to_project_out(project, "owner")
 
 
-@router.get("/projects", response_model=list[Project])
+@router.get("/projects", response_model=list[ProjectOut])
 def list_projects(
     db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> list[Project]:
-    return db.exec(
-        select(Project)
+) -> list[ProjectOut]:
+    rows = db.exec(
+        select(Project, ProjectMember.role)
         .join(ProjectMember, ProjectMember.project_id == Project.id)
         .where(ProjectMember.user_id == user.user_id)
     ).all()
+    return [_to_project_out(project, role) for project, role in rows]
 
 
-@router.get("/projects/{project_id}", response_model=Project)
+@router.get("/projects/{project_id}", response_model=ProjectOut)
 def get_project(
     project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
-) -> Project:
+) -> ProjectOut:
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
-    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
-    return project
+    return _to_project_out(project, member.role)
 
 
-@router.put("/projects/{project_id}", response_model=Project)
+@router.put("/projects/{project_id}", response_model=ProjectOut)
 def update_project_content(
     project_id: str,
     req: UpdateContentRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Project:
+) -> ProjectOut:
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
-    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
     project.content = req.content
     db.add(project)
     db.commit()
     db.refresh(project)
-    return project
+    return _to_project_out(project, member.role)
 
 
-@router.put("/projects/{project_id}/github", response_model=Project)
+@router.post("/projects/{project_id}/invite")
+def invite_member(
+    project_id: str,
+    req: InviteMemberRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None or member.role != "owner":
+        raise HTTPException(status_code=403, detail="owner만 초대할 수 있습니다")
+    target = db.exec(select(User).where(User.username == req.username)).first()
+    if target is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 사용자입니다")
+    if db.get(ProjectMember, (project_id, target.user_id)) is not None:
+        raise HTTPException(status_code=400, detail="이미 프로젝트 멤버입니다")
+    db.add(ProjectMember(project_id=project_id, user_id=target.user_id, role="member"))
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/projects/{project_id}/github", response_model=ProjectOut)
 def set_github_repo(
     project_id: str,
     req: SetGithubRepoRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> Project:
+) -> ProjectOut:
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
@@ -94,7 +146,7 @@ def set_github_repo(
     db.add(project)
     db.commit()
     db.refresh(project)
-    return project
+    return _to_project_out(project, member.role)
 
 
 @router.post("/projects/{project_id}/push")

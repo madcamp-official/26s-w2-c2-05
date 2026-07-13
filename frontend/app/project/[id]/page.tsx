@@ -2,13 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { getProject, saveProjectContent, setGithubRepo, pushToGithub, type Project } from "@/lib/projects";
+import { getProject, saveProjectContent, setGithubRepo, pushToGithub, inviteMember, type Project } from "@/lib/projects";
 import { getGithubStatus } from "@/lib/auth";
 
 type Recommendation = {
   id: string;
   reason: string;
   suggestedText: string;
+};
+
+type OnlineUser = {
+  user_id: number;
+  username: string;
 };
 
 const SAMPLE_RECOMMENDATIONS: Recommendation[] = [
@@ -37,7 +42,28 @@ export default function ProjectPage() {
   const [pushing, setPushing] = useState(false);
   const [pushed, setPushed] = useState(false);
   const [githubConnected, setGithubConnected] = useState(true);
+  const [inviteUsername, setInviteUsername] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const lastSavedContent = useRef<string | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) return;
+
+    const ws = new WebSocket(`ws://localhost:8000/ws/projects/${projectId}?token=${token}`);
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setOnlineUsers(data.online_users ?? []);
+    };
+
+    return () => {
+      ws.close();
+      setOnlineUsers([]);
+    };
+  }, [projectId]);
 
   useEffect(() => {
     getGithubStatus()
@@ -102,6 +128,26 @@ export default function ProjectPage() {
     }
   }
 
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setInviteMessage(null);
+    const username = inviteUsername.trim();
+    if (!username) {
+      setInviteMessage("username을 입력해주세요");
+      return;
+    }
+    setInviting(true);
+    try {
+      await inviteMember(projectId, username);
+      setInviteMessage("초대했습니다");
+      setInviteUsername("");
+    } catch (err) {
+      setInviteMessage((err as Error).message);
+    } finally {
+      setInviting(false);
+    }
+  }
+
   async function handlePush() {
     setError(null);
     setPushed(false);
@@ -119,14 +165,79 @@ export default function ProjectPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold text-ink">
-          {project?.name ?? "프로젝트"} · CLAUDE.md 편집기
-        </h1>
-        <p className="mt-1 text-sm text-ink/60">
-          세션에서 발견된 패턴을 참고해서 이 프로젝트의 CLAUDE.md를 다듬어보세요.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink">
+            {project?.name ?? "프로젝트"} · CLAUDE.md 편집기
+          </h1>
+          <p className="mt-1 text-sm text-ink/60">
+            세션에서 발견된 패턴을 참고해서 이 프로젝트의 CLAUDE.md를 다듬어보세요.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          {onlineUsers.map((u) => (
+            <span
+              key={u.user_id}
+              className="rounded-full bg-orange-light px-2.5 py-1 text-xs font-medium text-ink/70"
+            >
+              {u.username}
+            </span>
+          ))}
+          {project?.role === "owner" && (
+            <button
+              type="button"
+              onClick={() => {
+                setInviteMessage(null);
+                setInviteModalOpen(true);
+              }}
+              aria-label="프로젝트에 초대"
+              className="flex h-6 w-6 items-center justify-center rounded-full border border-ink/15 bg-white text-sm text-ink/70 transition hover:bg-orange-light/40"
+            >
+              +
+            </button>
+          )}
+        </div>
       </header>
+
+      {inviteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setInviteModalOpen(false)}
+        >
+          <div
+            className="w-80 rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-medium text-ink/80">프로젝트에 초대</h3>
+            <form onSubmit={handleInvite} className="flex flex-col gap-2">
+              <input
+                value={inviteUsername}
+                onChange={(e) => setInviteUsername(e.target.value)}
+                placeholder="초대할 username"
+                autoFocus
+                className="w-full rounded-md border border-ink/15 px-3 py-1.5 text-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+              />
+              {inviteMessage && <p className="text-sm text-ink/70">{inviteMessage}</p>}
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInviteModalOpen(false)}
+                  className="rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={inviting}
+                  className="rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {inviting ? "초대 중..." : "초대하기"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p role="alert" className="mb-4 text-sm text-red-600">
