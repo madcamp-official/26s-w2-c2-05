@@ -2,32 +2,31 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { getProject, saveProjectContent, setGithubRepo, pushToGithub, inviteMember, type Project } from "@/lib/projects";
+import {
+  getProject,
+  saveProjectContent,
+  setGithubRepo,
+  pushToGithub,
+  inviteMember,
+  listRevisions,
+  getRevision,
+  type Project,
+  type Revision,
+  type RevisionDetail,
+} from "@/lib/projects";
 import { getGithubStatus } from "@/lib/auth";
-
-type Recommendation = {
-  id: string;
-  reason: string;
-  suggestedText: string;
-};
 
 type OnlineUser = {
   user_id: number;
   username: string;
 };
 
-const SAMPLE_RECOMMENDATIONS: Recommendation[] = [
-  {
-    id: "r1",
-    reason: "탭 대신 스페이스로 들여쓰기를 여러 번 요청하셨어요.",
-    suggestedText: "- 들여쓰기는 탭이 아닌 스페이스 2칸을 사용한다.",
-  },
-  {
-    id: "r2",
-    reason: "커밋 전에 항상 npm test를 직접 실행하셨어요.",
-    suggestedText: "- 커밋하기 전에 반드시 `npm test`를 실행해서 통과를 확인한다.",
-  },
-];
+const REPO_URL_RE = /^https?:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+\/?(\.git)?$/;
+const REPO_SHORT_RE = /^[\w.-]+\/[\w.-]+$/;
+
+function isValidRepoInput(value: string): boolean {
+  return REPO_URL_RE.test(value) || REPO_SHORT_RE.test(value);
+}
 
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
@@ -35,7 +34,6 @@ export default function ProjectPage() {
 
   const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
-  const [applied, setApplied] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [repoInput, setRepoInput] = useState("");
@@ -48,7 +46,11 @@ export default function ProjectPage() {
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState(false);
-  const lastSavedContent = useRef<string | null>(null);
+  const [sessionFile, setSessionFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [previewRevision, setPreviewRevision] = useState<RevisionDetail | null>(null);
+  const sessionFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -73,33 +75,44 @@ export default function ProjectPage() {
   }, []);
 
   useEffect(() => {
-    lastSavedContent.current = null;
     getProject(projectId)
       .then((p) => {
         setProject(p);
         setContent(p.content);
-        setApplied(new Set());
         setRepoInput(p.github_repo ?? "");
-        lastSavedContent.current = p.content;
       })
       .catch((err) => setError((err as Error).message));
   }, [projectId]);
 
   useEffect(() => {
-    if (lastSavedContent.current === null || content === lastSavedContent.current) return;
-    const timeout = setTimeout(() => {
-      saveProjectContent(projectId, content)
-        .then(() => {
-          lastSavedContent.current = content;
-        })
-        .catch((err) => setError((err as Error).message));
-    }, 500);
-    return () => clearTimeout(timeout);
-  }, [projectId, content]);
+    listRevisions(projectId)
+      .then(setRevisions)
+      .catch((err) => setError((err as Error).message));
+  }, [projectId]);
 
-  function applyRecommendation(rec: Recommendation) {
-    setContent((prev) => `${prev.trimEnd()}\n${rec.suggestedText}\n`);
-    setApplied((prev) => new Set(prev).add(rec.id));
+  async function handleSave() {
+    setError(null);
+    setSaving(true);
+    try {
+      const updated = await saveProjectContent(projectId, content);
+      setProject(updated);
+      const latest = await listRevisions(projectId);
+      setRevisions(latest);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleOpenRevision(revisionId: string) {
+    setError(null);
+    try {
+      const revision = await getRevision(projectId, revisionId);
+      setPreviewRevision(revision);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   function handleDownload() {
@@ -121,8 +134,13 @@ export default function ProjectPage() {
   async function handleSaveRepo(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const trimmed = repoInput.trim();
+    if (!isValidRepoInput(trimmed)) {
+      setError("올바른 GitHub repo 형식이 아니에요 (예: owner/repo 또는 https://github.com/owner/repo)");
+      return;
+    }
     try {
-      const updated = await setGithubRepo(projectId, repoInput.trim());
+      const updated = await setGithubRepo(projectId, trimmed);
       setProject(updated);
       setEditingRepo(false);
     } catch (err) {
@@ -306,8 +324,16 @@ export default function ProjectPage() {
           />
           <div className="mt-3 flex items-center gap-3">
             <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? "저장 중..." : "저장"}
+            </button>
+            <button
               onClick={handleDownload}
-              className="rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark"
+              className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40"
             >
               다운로드
             </button>
@@ -321,40 +347,84 @@ export default function ProjectPage() {
               type="button"
               onClick={handlePush}
               disabled={pushing}
-              className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ml-auto rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {pushing ? "push 중..." : pushed ? "push 완료" : "GitHub에 push"}
+              {pushing ? "PUSH 중..." : pushed ? "PUSH 완료" : "PUSH"}
             </button>
           </div>
         </section>
 
         <aside>
-          <h2 className="mb-2 text-sm font-medium text-ink/70">추천 (예시)</h2>
-          <div className="flex flex-col gap-3">
-            {SAMPLE_RECOMMENDATIONS.map((rec) => {
-              const isApplied = applied.has(rec.id);
-              return (
-                <div
-                  key={rec.id}
-                  className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm"
-                >
-                  <p className="text-sm text-ink/80">{rec.reason}</p>
-                  <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
-                    {rec.suggestedText}
-                  </code>
-                  <button
-                    onClick={() => applyRecommendation(rec)}
-                    disabled={isApplied}
-                    className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
-                  >
-                    {isApplied ? "반영됨" : "적용하기"}
-                  </button>
-                </div>
-              );
-            })}
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-sm font-medium text-ink/70">세션 업로드</h2>
+            <input
+              ref={sessionFileInputRef}
+              type="file"
+              accept=".jsonl"
+              onChange={(e) => setSessionFile(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => sessionFileInputRef.current?.click()}
+              className="w-full rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark"
+            >
+              {sessionFile ? `${sessionFile.name} 업로드` : "업로드"}
+            </button>
+            <p className="mt-3 text-xs leading-relaxed text-ink/50">
+              세션 JSONL 파일은 <code className="rounded bg-orange-light/40 px-1">C:Users/(username)/.claude/projects/</code> 폴더
+              안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
+            </p>
+          </div>
+
+          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-sm font-medium text-ink/70">변경 이력</h2>
+            {revisions.length === 0 ? (
+              <p className="text-sm text-ink/40">저장 기록이 없습니다</p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {revisions.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRevision(r.id)}
+                      className="w-full rounded-md px-2 py-1.5 text-left text-sm text-ink/70 transition hover:bg-orange-light/40"
+                    >
+                      {new Date(r.created_at).toLocaleString()} · {r.username}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </aside>
       </div>
+
+      {previewRevision && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setPreviewRevision(null)}
+        >
+          <div
+            className="max-h-[80vh] w-[32rem] overflow-y-auto rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 text-sm font-medium text-ink/80">
+              {new Date(previewRevision.created_at).toLocaleString()} · {previewRevision.username}
+            </h3>
+            <pre className="mt-3 whitespace-pre-wrap rounded-md bg-orange-light/20 p-3 font-mono text-xs leading-relaxed text-ink">
+              {previewRevision.content}
+            </pre>
+            <button
+              type="button"
+              onClick={() => setPreviewRevision(null)}
+              className="mt-3 w-full rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

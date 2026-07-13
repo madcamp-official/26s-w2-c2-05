@@ -81,3 +81,29 @@ export async function pushToGithub(id: string): Promise<void> {
     throw new Error(body?.detail ?? "push에 실패했습니다");
   }
 }
+
+export type Revision = {
+  id: string;
+  created_at: string;
+  username: string;
+};
+
+export type RevisionDetail = Revision & {
+  content: string;
+};
+
+export async function listRevisions(id: string): Promise<Revision[]> {
+  const res = await fetch(`${API_BASE}/projects/${id}/revisions`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("변경 이력을 불러오지 못했습니다");
+  return res.json();
+}
+
+export async function getRevision(id: string, revisionId: string): Promise<RevisionDetail> {
+  const res = await fetch(`${API_BASE}/projects/${id}/revisions/${revisionId}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("변경 이력을 불러오지 못했습니다");
+  return res.json();
+}

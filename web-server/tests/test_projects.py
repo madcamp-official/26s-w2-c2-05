@@ -40,3 +40,12 @@ def test_get_project_returns_role(client, db_session):
 
     member_resp = client.get(f"/projects/{project_id}", headers=auth_headers(member_token))
     assert member_resp.json()["role"] == "member"
+
+
+def test_created_at_is_timezone_aware_in_response(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+
+    resp = client.get(f"/projects/{project_id}", headers=auth_headers(owner_token))
+    created_at = resp.json()["created_at"]
+    assert created_at.endswith("Z") or "+00:00" in created_at

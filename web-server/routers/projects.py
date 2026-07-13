@@ -1,14 +1,22 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from ..deps import get_db, get_current_user
-from ..models import Project, ProjectMember, User
+from ..models import Project, ProjectMember, ProjectRevision, User
 from .. import github_client
 
 router = APIRouter()
+
+
+def _as_utc(dt: datetime) -> datetime:
+    # SQLite는 tzinfo를 저장하지 않아 DB에서 읽어온 datetime은 항상 naive로
+    # 돌아온다. 우리 모델은 항상 UTC로 저장하므로(default_factory=datetime.utcnow),
+    # 여기서 tzinfo를 명시적으로 붙여줘야 JSON 응답에 "Z"/"+00:00"이 붙고,
+    # 프론트에서 new Date(...)가 이를 로컬 시간으로 오인하지 않는다.
+    return dt.replace(tzinfo=timezone.utc)
 
 
 class ProjectOut(BaseModel):
@@ -26,7 +34,7 @@ def _to_project_out(project: Project, role: str) -> ProjectOut:
         name=project.name,
         content=project.content,
         github_repo=project.github_repo,
-        created_at=project.created_at,
+        created_at=_as_utc(project.created_at),
         role=role,
     )
 
@@ -101,9 +109,66 @@ def update_project_content(
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
     project.content = req.content
     db.add(project)
+    db.add(
+        ProjectRevision(project_id=project_id, user_id=user.user_id, content=req.content)
+    )
     db.commit()
     db.refresh(project)
     return _to_project_out(project, member.role)
+
+
+class RevisionListOut(BaseModel):
+    id: str
+    created_at: datetime
+    username: str
+
+
+class RevisionDetailOut(BaseModel):
+    id: str
+    created_at: datetime
+    username: str
+    content: str
+
+
+@router.get("/projects/{project_id}/revisions", response_model=list[RevisionListOut])
+def list_revisions(
+    project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[RevisionListOut]:
+    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    rows = db.exec(
+        select(ProjectRevision, User)
+        .join(User, User.user_id == ProjectRevision.user_id)
+        .where(ProjectRevision.project_id == project_id)
+        .order_by(ProjectRevision.created_at.desc())
+    ).all()
+    return [
+        RevisionListOut(id=r.id, created_at=_as_utc(r.created_at), username=u.username)
+        for r, u in rows
+    ]
+
+
+@router.get(
+    "/projects/{project_id}/revisions/{revision_id}", response_model=RevisionDetailOut
+)
+def get_revision(
+    project_id: str,
+    revision_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RevisionDetailOut:
+    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    revision = db.get(ProjectRevision, revision_id)
+    if revision is None or revision.project_id != project_id:
+        raise HTTPException(status_code=404, detail="리비전을 찾을 수 없습니다")
+    author = db.get(User, revision.user_id)
+    return RevisionDetailOut(
+        id=revision.id,
+        created_at=_as_utc(revision.created_at),
+        username=author.username,
+        content=revision.content,
+    )
 
 
 @router.post("/projects/{project_id}/invite")
