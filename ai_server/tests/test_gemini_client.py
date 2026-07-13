@@ -7,7 +7,14 @@ from ai_server.gemini_client import (
     GeminiQuotaExceeded,
     call_gemini_analyze,
 )
-from ai_server.schemas import AnalyzeResponse
+from ai_server.schemas import (
+    AnalyzeResponse,
+    ClaudeMdCandidate,
+    GeminiAnalyzeSchema,
+    GeminiClaudeMdCandidate,
+    GeminiHookCandidate,
+    HookCandidate,
+)
 
 
 class FakeResponse:
@@ -19,7 +26,7 @@ class FakeModels:
     """실제 client.aio.models.generate_content 자리에 들어가는 가짜.
 
     responses 리스트를 순서대로 소비한다. 항목이 Exception이면 raise,
-    AnalyzeResponse면 FakeResponse로 감싸 반환한다."""
+    GeminiAnalyzeSchema면 FakeResponse로 감싸 반환한다 (response.parsed 자리)."""
 
     def __init__(self, responses):
         self._responses = list(responses)
@@ -54,22 +61,23 @@ def make_client_error(status_code: int) -> errors.ClientError:
     return errors.ClientError(status_code, resp)
 
 
-EMPTY = AnalyzeResponse(candidates=[])
+EMPTY_GEMINI_RESPONSE = GeminiAnalyzeSchema(hook_candidates=[], claude_md_candidates=[])
+EMPTY_ANALYZE_RESPONSE = AnalyzeResponse(candidates=[])
 
 
 @pytest.mark.asyncio
 async def test_succeeds_on_first_try():
-    client = FakeClient([EMPTY])
+    client = FakeClient([EMPTY_GEMINI_RESPONSE])
     result = await call_gemini_analyze(client, "패턴 요약")
-    assert result == EMPTY
+    assert result == EMPTY_ANALYZE_RESPONSE
     assert client.aio.models.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_retries_once_then_succeeds():
-    client = FakeClient([RuntimeError("일시적 오류"), EMPTY])
+    client = FakeClient([RuntimeError("일시적 오류"), EMPTY_GEMINI_RESPONSE])
     result = await call_gemini_analyze(client, "패턴 요약")
-    assert result == EMPTY
+    assert result == EMPTY_ANALYZE_RESPONSE
     assert client.aio.models.call_count == 2
 
 
@@ -94,7 +102,7 @@ async def test_raises_quota_exceeded_on_429_without_retry():
     # 실제 google-genai SDK가 던지는 ClientError(429)는 GeminiQuotaExceeded로
     # 구분되고, 재시도 없이 즉시 실패한다 (RpdCounter가 대부분 사전 차단하는
     # 희귀 레이스 컨디션이므로 재시도해도 성공 가능성이 낮음).
-    client = FakeClient([make_client_error(429), EMPTY])
+    client = FakeClient([make_client_error(429), EMPTY_GEMINI_RESPONSE])
     with pytest.raises(GeminiQuotaExceeded):
         await call_gemini_analyze(client, "패턴 요약")
     assert client.aio.models.call_count == 1
@@ -103,7 +111,55 @@ async def test_raises_quota_exceeded_on_429_without_retry():
 @pytest.mark.asyncio
 async def test_non_429_client_error_still_retries():
     # 429가 아닌 ClientError(예: 400)는 일반 실패 경로를 타고 재시도한다.
-    client = FakeClient([make_client_error(400), EMPTY])
+    client = FakeClient([make_client_error(400), EMPTY_GEMINI_RESPONSE])
     result = await call_gemini_analyze(client, "패턴 요약")
-    assert result == EMPTY
+    assert result == EMPTY_ANALYZE_RESPONSE
     assert client.aio.models.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_injects_type_field_when_converting_gemini_response():
+    # Gemini는 anyOf/const를 지원하지 않아 type 필드 없이 hook_candidates/
+    # claude_md_candidates로 나눠 응답한다 (2026-07-13, 실제 API 검증 중 발견).
+    # call_gemini_analyze는 리스트 소속에 따라 type을 채워 AnalyzeResponse
+    # (Union 기반)로 조립해야 한다.
+    gemini_response = GeminiAnalyzeSchema(
+        hook_candidates=[
+            GeminiHookCandidate(
+                event="PostToolUse",
+                matcher="Edit",
+                command="npm test",
+                reason="테스트를 항상 직접 돌리셨어요.",
+                confidence="high",
+            )
+        ],
+        claude_md_candidates=[
+            GeminiClaudeMdCandidate(
+                suggested_text="탭 대신 스페이스를 사용합니다.",
+                reason="여러 번 정정하셨어요.",
+                confidence="medium",
+            )
+        ],
+    )
+    client = FakeClient([gemini_response])
+
+    result = await call_gemini_analyze(client, "패턴 요약")
+
+    assert result == AnalyzeResponse(
+        candidates=[
+            HookCandidate(
+                type="hook",
+                event="PostToolUse",
+                matcher="Edit",
+                command="npm test",
+                reason="테스트를 항상 직접 돌리셨어요.",
+                confidence="high",
+            ),
+            ClaudeMdCandidate(
+                type="claude_md",
+                suggested_text="탭 대신 스페이스를 사용합니다.",
+                reason="여러 번 정정하셨어요.",
+                confidence="medium",
+            ),
+        ]
+    )

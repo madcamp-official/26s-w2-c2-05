@@ -9,6 +9,7 @@ def test_analyze_response_holds_mixed_candidates():
     resp = AnalyzeResponse(
         candidates=[
             HookCandidate(
+                type="hook",
                 event="PostToolUse",
                 matcher="Edit",
                 command="npm test",
@@ -16,6 +17,7 @@ def test_analyze_response_holds_mixed_candidates():
                 confidence="high",
             ),
             ClaudeMdCandidate(
+                type="claude_md",
                 suggested_text="들여쓰기는 탭 대신 스페이스를 사용합니다.",
                 reason="탭 대신 스페이스를 써달라고 여러 번 다시 알려주셨습니다.",
                 confidence="medium",

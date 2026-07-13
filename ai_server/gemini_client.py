@@ -3,9 +3,12 @@ import asyncio
 from google.genai import errors
 
 from .rate_limit import gemini_analyze_limiter
-from .schemas import AnalyzeResponse
+from .schemas import AnalyzeResponse, ClaudeMdCandidate, GeminiAnalyzeSchema, HookCandidate
 
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+# gemini-2.5-flash-lite는 2026-07-13 기준 신규 유저에게 더 이상 제공되지
+# 않아(404 NOT_FOUND, T-08 실측 중 발견) 3.1 세대로 교체함. RPM/RPD도 더
+# 여유롭다(RPM 10→15, RPD 20→500, AI Studio 대시보드 실측).
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 GEMINI_TIMEOUT_SECONDS = 15
 
 SYSTEM_INSTRUCTION = """너는 Claude Code 세션 로그에서 반복되는 행동 패턴을 보고,
@@ -43,10 +46,25 @@ class GeminiQuotaExceeded(GeminiCallFailed):
     pass
 
 
+def _to_analyze_response(parsed: GeminiAnalyzeSchema) -> AnalyzeResponse:
+    """Gemini가 hook/claude_md로 나눠 응답한 리스트에 type을 채워 넣어
+    AnalyzeResponse(Union 기반)로 조립한다. GeminiAnalyzeSchema 문서에
+    설명한 대로, 리스트 소속 자체가 이미 타입을 나타내므로 여기서 채우면
+    된다."""
+    candidates = [
+        HookCandidate(type="hook", **h.model_dump()) for h in parsed.hook_candidates
+    ] + [
+        ClaudeMdCandidate(type="claude_md", **c.model_dump())
+        for c in parsed.claude_md_candidates
+    ]
+    return AnalyzeResponse(candidates=candidates)
+
+
 async def call_gemini_analyze(client, pattern_summary: str) -> AnalyzeResponse:
     """client는 google.genai.Client 인스턴스 (또는 테스트용 가짜).
     client.aio.models.generate_content(**kwargs) -> awaitable[response]
-    response.parsed 가 response_schema로 지정한 pydantic 인스턴스여야 한다.
+    response.parsed 가 response_schema(GeminiAnalyzeSchema)로 지정한
+    pydantic 인스턴스여야 한다.
     """
     last_error: Exception | None = None
     async with gemini_analyze_limiter:
@@ -59,14 +77,14 @@ async def call_gemini_analyze(client, pattern_summary: str) -> AnalyzeResponse:
                         config={
                             "system_instruction": SYSTEM_INSTRUCTION,
                             "response_mime_type": "application/json",
-                            "response_schema": AnalyzeResponse,
+                            "response_schema": GeminiAnalyzeSchema,
                         },
                     ),
                     timeout=GEMINI_TIMEOUT_SECONDS,
                 )
                 if response.parsed is None:
                     raise GeminiCallFailed("Gemini가 스키마에 맞는 응답을 생성하지 못함")
-                return response.parsed
+                return _to_analyze_response(response.parsed)
             except errors.ClientError as e:
                 if e.code == 429:
                     raise GeminiQuotaExceeded(str(e)) from e

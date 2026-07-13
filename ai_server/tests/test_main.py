@@ -17,6 +17,7 @@ def test_analyze_endpoint_returns_candidates_and_remaining_rpd(monkeypatch):
         return AnalyzeResponse(
             candidates=[
                 HookCandidate(
+                    type="hook",
                     event="PostToolUse",
                     matcher="Edit",
                     command="npm test",
