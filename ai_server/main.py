@@ -19,6 +19,13 @@ def get_gemini_client() -> genai.Client:
 async def analyze(
     req: AnalyzeRequest, client=Depends(get_gemini_client)
 ) -> AnalyzeEndpointResponse:
+    # consume()은 호출 1건당 1번만 차감한다 — call_gemini_analyze 내부에서
+    # 재시도가 일어나면 로컬 카운터 기준으로는 실제 Gemini 요청 수를 과소
+    # 계산하게 되지만(예: 1회 재시도 시 실제로는 Gemini에 2번 요청), 최종
+    # 실패든 성공이든 이미 Gemini의 서버 쪽 쿼터는 그만큼 소모된 뒤라 여기서
+    # 환불하지 않는 게 맞다 — 환불하면 우리 로컬 카운터가 실제 계정 한도보다
+    # 더 여유 있다고 착각해 초과 요청을 허용할 위험이 있다(2026-07-13, 최종
+    # 브랜치 리뷰에서 확인).
     if not gemini_analyze_rpd_counter.consume():
         raise HTTPException(status_code=429, detail="오늘의 요청 한도를 모두 사용했습니다")
     try:

@@ -27,7 +27,8 @@ def test_analyze_response_holds_mixed_candidates():
     assert resp.candidates[0].type == "hook"
     assert resp.candidates[1].type == "claude_md"
 
-    # 직렬화 후 역직렬화해도 discriminated union이 올바르게 복원되는지 확인
+    # 직렬화 후 역직렬화해도 Union(pydantic v2 smart mode, type이 필수
+    # Literal이라 구분 가능)이 올바르게 복원되는지 확인
     dumped = resp.model_dump_json()
     restored = AnalyzeResponse.model_validate_json(dumped)
     assert restored.candidates[0].command == "npm test"

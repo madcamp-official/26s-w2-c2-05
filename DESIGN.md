@@ -112,8 +112,9 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 
 ### Gemini 모델/무료 티어 제약
 
-**모델: `gemini-2.5-flash-lite`로 전환 (2026-07-10 확정, 팀원 안 채택)** — 원래
-스펙은 `gemini-2.5-flash`였으나 비용/속도를 더 아끼기 위해 flash-lite로 변경.
+**모델: `gemini-2.5-flash-lite`로 전환 (2026-07-10 확정, 팀원 안 채택 — → 2026-07-13
+`gemini-3.1-flash-lite`로 재변경, 아래 참고)** — 원래 스펙은 `gemini-2.5-flash`였으나
+비용/속도를 더 아끼기 위해 flash-lite로 변경.
 **주의(리스크로 기록)**: flash-lite는 flash보다 판단력·자연어 설명 품질이 떨어질
 수 있음 — hook vs claude_md 분류나 reason 문장 품질이 낮아지면 데모 중 눈에 띌 수
 있으니, 초기 구현 후 실제 출력 품질을 꼭 확인하고 필요하면 flash로 되돌릴 것.
