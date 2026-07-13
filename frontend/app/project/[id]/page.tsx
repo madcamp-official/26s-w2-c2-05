@@ -266,7 +266,7 @@ export default function ProjectPage() {
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             {project?.role === "owner" && !githubConnected && (
               <p className="mb-3 text-sm text-red-600">
-                GitHub 계정이 연결되어 있지 않아요. 메인 페이지에서 연결해주세요.
+                GitHub 계정을 연동해주세요
               </p>
             )}
             {project?.role === "owner" && editingRepo ? (
