@@ -3,7 +3,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
-  title: "CoolAI",
+  title: "CoolAl",
   description: "내 세션 패턴을 바탕으로 CLAUDE.md를 다듬어보세요",
 };
 

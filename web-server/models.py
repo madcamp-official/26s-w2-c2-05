@@ -37,3 +37,11 @@ class GithubOAuthState(SQLModel, table=True):
     state: str = Field(primary_key=True)
     user_id: int = Field(foreign_key="users.user_id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ProjectRevision(SQLModel, table=True):
+    __tablename__ = "project_revisions"
+    id: str = Field(default_factory=new_id, primary_key=True)
+    project_id: str = Field(foreign_key="projects.id")
+    user_id: int = Field(foreign_key="users.user_id")
+    content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
