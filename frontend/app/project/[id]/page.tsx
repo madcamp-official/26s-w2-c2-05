@@ -47,6 +47,7 @@ export default function ProjectPage() {
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [editingRepo, setEditingRepo] = useState(false);
   const lastSavedContent = useRef<string | null>(null);
 
   useEffect(() => {
@@ -123,6 +124,7 @@ export default function ProjectPage() {
     try {
       const updated = await setGithubRepo(projectId, repoInput.trim());
       setProject(updated);
+      setEditingRepo(false);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -168,11 +170,8 @@ export default function ProjectPage() {
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-ink">
-            {project?.name ?? "프로젝트"} · CLAUDE.md 편집기
+            {project?.name ?? "프로젝트"}
           </h1>
-          <p className="mt-1 text-sm text-ink/60">
-            세션에서 발견된 패턴을 참고해서 이 프로젝트의 CLAUDE.md를 다듬어보세요.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
           {onlineUsers.map((u) => (
@@ -244,10 +243,59 @@ export default function ProjectPage() {
           {error}
         </p>
       )}
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
         <section>
-          <label className="mb-2 block text-sm font-medium text-ink/70">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+            {project?.role === "owner" && !githubConnected && (
+              <p className="mb-3 text-sm text-red-600">
+                GitHub 계정이 연결되어 있지 않아요. 메인 페이지에서 연결해주세요.
+              </p>
+            )}
+            {project?.role === "owner" && editingRepo ? (
+              <form onSubmit={handleSaveRepo} className="flex gap-2">
+                <input
+                  value={repoInput}
+                  onChange={(e) => setRepoInput(e.target.value)}
+                  placeholder="owner/repo"
+                  autoFocus
+                  className="flex-1 rounded-md border border-ink/15 px-3 py-2 text-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+                >
+                  저장
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRepoInput(project?.github_repo ?? "");
+                    setEditingRepo(false);
+                  }}
+                  className="rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+                >
+                  취소
+                </button>
+              </form>
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-base font-semibold text-ink/80">
+                  {project?.github_repo ?? "설정된 repo가 없습니다"}
+                </span>
+                {project?.role === "owner" && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingRepo(true)}
+                    className="rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+                  >
+                    repo 수정
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <label className="mb-2 mt-10 block text-sm font-medium text-ink/70">
             CLAUDE.md 내용
           </label>
           <textarea
@@ -269,34 +317,11 @@ export default function ProjectPage() {
             >
               {copied ? "복사됨" : "복사하기"}
             </button>
-          </div>
-
-          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-sm font-medium text-ink/70">GitHub 연동</h2>
-            {!githubConnected && (
-              <p className="mb-3 text-sm text-red-600">
-                GitHub 계정이 연결되어 있지 않아요. 메인 페이지에서 연결해주세요.
-              </p>
-            )}
-            <form onSubmit={handleSaveRepo} className="flex gap-2">
-              <input
-                value={repoInput}
-                onChange={(e) => setRepoInput(e.target.value)}
-                placeholder="owner/repo"
-                className="flex-1 rounded-md border border-ink/15 px-3 py-2 text-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
-              />
-              <button
-                type="submit"
-                className="rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
-              >
-                repo 저장
-              </button>
-            </form>
             <button
               type="button"
               onClick={handlePush}
               disabled={pushing}
-              className="mt-3 w-full rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
+              className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pushing ? "push 중..." : pushed ? "push 완료" : "GitHub에 push"}
             </button>
