@@ -112,11 +112,24 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 
 ### Gemini 모델/무료 티어 제약
 
-**모델: `gemini-2.5-flash-lite`로 전환 (2026-07-10 확정, 팀원 안 채택)** — 원래
-스펙은 `gemini-2.5-flash`였으나 비용/속도를 더 아끼기 위해 flash-lite로 변경.
+**모델: `gemini-2.5-flash-lite`로 전환 (2026-07-10 확정, 팀원 안 채택 — → 2026-07-13
+`gemini-3.1-flash-lite`로 재변경, 아래 참고)** — 원래 스펙은 `gemini-2.5-flash`였으나
+비용/속도를 더 아끼기 위해 flash-lite로 변경.
 **주의(리스크로 기록)**: flash-lite는 flash보다 판단력·자연어 설명 품질이 떨어질
 수 있음 — hook vs claude_md 분류나 reason 문장 품질이 낮아지면 데모 중 눈에 띌 수
 있으니, 초기 구현 후 실제 출력 품질을 꼭 확인하고 필요하면 flash로 되돌릴 것.
+
+**품질 리스크 판단 완료 (2026-07-13, T-08)**: (`gemini-3.1-flash-lite`로 교체된
+이후) 실제 5개 패턴으로 품질 실측. 초기 결과에서 hook 후보의 `matcher` 필드가
+3/3 전부 틀렸음(파일 패턴/실제 커맨드 문자열을 넣음 — 실제로는 도구 이름이어야
+함), `event`도 1건은 존재하지 않는 값을 지어냄, claude_md 1건은 영어로 출력.
+**결론: 모델(`flash`) 전환 없이 시스템 프롬프트 보강만으로 해결** — event
+허용값을 enum으로 못박고, matcher가 도구 이름이라는 걸 예시와 함께 명시하고,
+템플릿 문법 남용을 금지하고, 한국어 출력을 강제한 뒤 같은 5개 패턴을 재실행한
+결과 matcher 3/3·event 3/3 정확, 언어 5/5 한국어로 개선됨(`ai_server/quality_check.sh`
+로 재현/재검증 가능). "판단력 부족 시 flash로 되돌릴 것"이라는 원래 우려는
+**flash-lite를 유지하는 쪽으로 해소됨** — 근본 원인이 모델 능력 한계가 아니라
+프롬프트의 제약 부족이었기 때문.
 
 공식 문서(ai.google.dev)는 계정별 실시간 한도를 AI Studio 대시보드에서만 보여주고
 고정 표를 공개하지 않는다. 서드파티 소스들은 flash 계열 기준 10~15 RPM,
@@ -124,6 +137,38 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 대시보드에서 직접 확인할 것.** 점진적 매칭 구조상 한 번에 여러 호출이 몰릴 일이
 애초에 적고(세션 하나 들어올 때마다 호출 1회), 병합 단계는 임베딩(별도 쿼터)만
 쓰므로 생성 모델 RPM 예산을 건드리지 않는다.
+
+**실측 결과 (2026-07-13, T-02)**: 팀 계정 AI Studio 사용량 대시보드 기준 —
+`gemini-2.5-flash-lite`: RPM 10 / TPM 250K / **RPD 20**, `gemini-embedding-001`:
+RPM 100 / TPM 30K / RPD 1,000. **RPD 20이 임베딩(1,000)보다 훨씬 타이트한
+실질적 병목** — 세션 업로드 1건당 `/analyze` 호출 1회이므로, 하루 20건 넘게
+업로드/재업로드하면 그날은 생성 호출이 전부 막힌다. 이 위험 때문에 "처리 방식
+확정" 절에 RPD 사전 차단 설계를 추가함(아래 참고).
+
+**모델 재변경: `gemini-3.1-flash-lite`로 교체 (2026-07-13, T-08 실제 API
+검증 중 발견)** — 위 실측(T-02) 이후 3일 만에 구글이 `gemini-2.5-flash-lite`를
+**신규 유저에게 폐기**해서(`404 NOT_FOUND: This model ... is no longer
+available to new users`), T-08에서 실제로 서버를 띄워 curl로 확인하다가
+처음 발견함. `gemini-3.1-flash-lite`로 교체 — 마침 한도도 더 낫다(RPM
+10→15, **RPD 20→500**, AI Studio 재확인). RPD 500이면 위에서 걱정했던
+"하루 20건 넘으면 막힘" 리스크가 크게 완화된다(그래도 무한은 아니므로 RPD
+사전 차단 로직 자체는 유지).
+
+**구조화 출력(`response_schema`) 제약 발견 (2026-07-13, T-08)** — 실제 Gemini
+API에 처음 요청을 보내면서(그전까지는 전부 가짜 클라이언트로 테스트) 스키마
+관련 제약을 3개 발견:
+1. 필드에 기본값이 있으면 거부(`Default value is not supported`) —
+   `HookCandidate`/`ClaudeMdCandidate`의 `type` 필드 기본값을 제거해 필수
+   필드로 바꿈.
+2. `Union`(`anyOf`)을 지원하지 않음(`AnyOf is not supported`) — hook/claude_md
+   후보를 하나의 Union 리스트가 아니라 `hook_candidates`/`claude_md_candidates`
+   **두 개의 별도 리스트**로 나눠 요청하도록 변경 (`GeminiAnalyzeSchema`,
+   `ai_server/schemas.py`).
+3. 값이 하나뿐인 Literal(`const`)도 지원하지 않음 — 리스트 소속 자체가 이미
+   타입을 나타내므로, Gemini에 보내는 스키마에서는 `type` 필드를 아예 뺐다.
+   `call_gemini_analyze`가 응답받은 뒤 `type`을 채워 기존 `AnalyzeResponse`
+   (Union 기반, 다른 모든 태스크가 이미 쓰던 형태)로 조립해서 반환 — 그래서
+   내부 계약(`AnalyzeResponse`)과 웹서버 쪽 계약은 안 바뀜.
 
 ### 처리 방식 확정 (2026-07-10, /plan-eng-review)
 
@@ -133,9 +178,27 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 - Gemini 호출에 타임아웃(15초)을 걸어 무한 대기를 방지 — 넘으면 D5에서 결정한
   "1회 재시도 → 실패 메시지" 경로로 처리.
 - Gemini 호출 함수 앞에 `aiolimiter`(`AsyncLimiter`) 라이브러리로 RPM 보호 —
-  최근 60초 안의 호출 수를 세서 한도(정확한 값은 AI Studio에서 확인 후 여유
-  있게 설정, 예: 8~10) 넘으면 자동으로 잠깐 대기 후 호출. 서버가 KAIST VM
-  한 대에서만 도는 단일 프로세스라 Redis 등 분산 속도 제한 인프라는 불필요.
+  최근 60초 안의 호출 수를 세서 한도(실측값, `gemini-3.1-flash-lite` 기준
+  생성 15 RPM / 임베딩 100 RPM — 2026-07-13 T-08에서 모델 교체 후 갱신,
+  T-02 당시엔 `gemini-2.5-flash-lite` 10 RPM이었음) 넘으면 자동으로 잠깐
+  대기 후 호출. 서버가 KAIST VM 한 대에서만 도는 단일 프로세스라 Redis 등
+  분산 속도 제한 인프라는 불필요.
+- **일일 RPD 사전 차단 (2026-07-13 결정, T-04 스코프 확장)**: 생성 모델의
+  RPD가 낮게 실측돼(위 "Gemini 모델/무료 티어 제약" 절 참고 — 처음
+  확인했던 `gemini-2.5-flash-lite`는 20이었으나, 이 모델이 T-08 도중
+  폐기되어 `gemini-3.1-flash-lite`(RPD 500)로 교체됨), `aiolimiter`
+  (분당 단위)와 별개로 **로컬 일일 카운터**를 하나 더 둬서 자정에 리셋한다.
+  카운터가 한도(500)에 도달하면 Gemini를 호출하지 않고 **AI서버가 직접
+  429를 반환**한다
+  (혹시 레이스 컨디션으로 실제 Gemini가 429를 주는 경우도 동일하게 429로
+  패스스루 — 프론트는 소스를 구분할 필요 없이 429 하나만 보고 처리하면 됨).
+  `/analyze` 응답에 잔여 RPD 값을 실어 웹서버→프론트로 전달하고, 프론트는 이
+  값으로 업로드 버튼을 사전에 비활성화하다가 0이 되면 별도 에러 페이지로
+  리다이렉트한다(프론트 쪽 버튼/에러 페이지 구현 자체는 웹서버 팀 스코프 —
+  여기서는 AI서버가 지켜야 할 계약만 명시). **429(할당량 초과, 예상된 상황) vs
+  503(그 외 일시적 실패, 타임아웃/malformed 등)을 명확히 구분** — 기존에는
+  `GeminiCallFailed`를 전부 503으로 뭉뚱그렸으나, 할당량 소진은 429로 분리해서
+  프론트가 다른 화면으로 분기할 수 있게 한다.
 
 ## Success Criteria
 
@@ -204,7 +267,9 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
   (팀원 안). 임계값 넘은 그룹은 승인 버튼 없이 자동으로 md/hook 파일에 반영되고,
   왜 반영됐는지 근거를 함께 보여준다.
 - ~~모델 선택~~ → `gemini-2.5-flash-lite`로 전환. 품질 리스크는 위 "모델/무료
-  티어 제약" 절에 리스크로 기록.
+  티어 제약" 절에 리스크로 기록. **(2026-07-13 갱신: 이 모델이 신규 유저에게
+  폐기되어 `gemini-3.1-flash-lite`로 재전환 — 위 "모델/무료 티어 제약" 절
+  참고)**
 
 ## Resolved via /plan-eng-review (2026-07-10)
 
@@ -270,7 +335,7 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 |---|---|---|
 | 백엔드 | FastAPI + SQLModel(SQLAlchemy) | Python |
 | DB | SQLite | 파일 하나, 별도 서버 불필요 |
-| 생성 LLM | `gemini-2.5-flash-lite` (`google-genai` SDK) | 타임아웃 15초 + 재시도 1회 |
+| 생성 LLM | `gemini-3.1-flash-lite` (`google-genai` SDK, 2026-07-13 T-08 교체 — `gemini-2.5-flash-lite`는 신규 유저에게 폐기됨) | 타임아웃 15초 + 재시도 1회 |
 | 임베딩 | `gemini-embedding-001`/`-2` (`task: clustering`) | 생성 모델과 별도 쿼터 |
 | RPM 보호 | `aiolimiter` (`AsyncLimiter`) | Gemini 생성 호출 앞에만 적용, 단일 프로세스라 Redis 불필요 |
 | 유사도 계산 | `numpy` (코사인 유사도) | 벡터 DB 불필요, 팀 규모상 로컬 계산으로 충분 |
@@ -281,7 +346,11 @@ Gemini flash-lite는 한 프롬프트에 요구사항이 많아질수록 각 요
 
 ```
 26s-w2-c2-05/
-├── ai-server/          # AI 서버 (Gemini /analyze, /embed) — 예정, docs/sprints/2026-07-12-ai-server-sprint.md
+├── ai_server/          # AI 서버 (Gemini /analyze, /embed) — docs/sprints/2026-07-12-ai-server-sprint.md
+│                       # (2026-07-13 결정: 원래 ai-server였으나, 파이썬 패키지 import
+│                       #  대상 디렉토리는 하이픈을 쓸 수 없어(`from ai_server.schemas
+│                       #  import ...`) 언더스코어로 변경. web-server는 이 제약이 없어
+│                       #  하이픈 유지)
 ├── web-server/         # 웹 서버 (FastAPI, SQLite, 비즈니스 로직) — 이미 존재
 ├── frontend/           # Next.js — 이미 존재
 ├── docs/
@@ -430,6 +499,12 @@ CORS 설정도 통째로 불필요해짐(브라우저는 항상 같은 origin에
   여러 번 더 단순한 쪽으로 조정됨.
 - 다음 단계: 구현 시작. 먼저 API 계약 2개(웹서버 API 표, AI서버 `/analyze`+
   `/embed` 스키마)를 합의한 뒤, AI 서버와 웹서버+프론트로 나눠 병렬 진행.
+- **AI서버 구현 완료 (2026-07-13)**: `docs/sprints/2026-07-12-ai-server-sprint.md`
+  T-01~T-09 전부 완료. 실제 Gemini API 검증(T-08) 중 모델 폐기·스키마
+  제약(anyOf/const/기본값 미지원)·프롬프트 품질 문제를 발견해 수정(자세한
+  내용은 위 "Gemini 모델/무료 티어 제약"·"처리 방식 확정" 절 참고). 전체
+  브랜치 코드 리뷰(`subagent-driven-development` 최종 리뷰) 통과, `/simplify`
+  4관점 리뷰 반영 완료. 24개 테스트 전부 통과.
 
 ## GitHub API 연동 — 실제 반영 (2026-07-11 결정, 웹서버 담당)
 
@@ -521,8 +596,11 @@ CORS 설정도 통째로 불필요해짐(브라우저는 항상 같은 origin에
     검증된 것인지 — 실제 테스트로 확인 필요
 
 ### 섹션 6 — Gemini 모델/무료 티어 제약
-- [ ] 팀 계정 AI Studio 대시보드에서 실제 RPM/RPD 한도를 확인했는지 미확인 —
-      확인 필요 (현재 `aiolimiter` 8 RPM은 실측 없이 보수적으로 잡은 값)
+- [x] ~~팀 계정 AI Studio 대시보드에서 실제 RPM/RPD 한도를 확인~~ →
+      **완료 (2026-07-13, T-02)**. 실측값은 위 "Gemini 모델/무료 티어 제약"
+      절 참고 (`gemini-2.5-flash-lite` RPM 10/RPD 20, `gemini-embedding-001`
+      RPM 100/RPD 1,000). RPD 20이 예상보다 훨씬 타이트해서 별도 사전 차단
+      설계가 "처리 방식 확정" 절에 추가됨.
 - [ ] **v2**: Gemini 사용량/한도를 매번 AI Studio에 수동으로 들어가서 확인하는
       대신, 우리 대시보드에서 사용량·한도 근접 여부를 바로 확인할 수 있는
       모니터링 시스템 구축
@@ -533,6 +611,11 @@ CORS 설정도 통째로 불필요해짐(브라우저는 항상 같은 origin에
       예산을 안 건드린다"고 돼 있는데, 실제 코드는 두 호출을 같은 로컬 버킷에서
       세고 있어 임베딩이 생성 호출의 여유분을 불필요하게 갉아먹을 수 있음 —
       limiter를 분리할지 결정 필요
+- [ ] **(2026-07-13 결정, 미구현)** 생성 모델 RPD(20, 실측)가 낮아 일일 사전
+      차단 카운터를 추가하기로 결정함(설계는 위 "일일 RPD 사전 차단" 항목
+      참고) — `aiolimiter`(분당)와 별개로 로컬 일일 카운터 구현, 소진 시
+      Gemini 호출 없이 429 반환, `/analyze` 응답에 잔여 RPD 노출 필요.
+      T-04에서 구현 예정.
 - [ ] 세션 하나에 claude_md 후보가 여러 개면 `sessions.py`가 임베딩 호출을
       순차적으로(하나씩) 수행해 응답 지연이 커질 수 있음 — `asyncio.gather`로
       병렬화하거나 개인 추천 응답을 먼저 반환하고 팀 매칭은 백그라운드로 미루는

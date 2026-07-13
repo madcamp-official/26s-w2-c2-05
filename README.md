@@ -113,11 +113,12 @@
 `web-server`가 먼저 떠 있어야 한다.
 
 ```bash
-# 1. AI 서버 (:8001) — docs/sprints/2026-07-12-ai-server-sprint.md 완료 후 존재
-cd ai-server
+# 1. AI 서버 (:8001)
+cd ai_server
 cp .env.example .env        # GEMINI_API_KEY 채우기
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8001
+cd ..
+python3 -m uvicorn ai_server.main:app --reload --port 8001   # 반드시 repo 루트에서 실행 (상대 import 때문)
 ```
 
 ```bash
