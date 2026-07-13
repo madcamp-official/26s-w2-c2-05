@@ -30,7 +30,7 @@ export default function Sidebar() {
       .catch(() => setGithubConnected(false));
   }, [pathname]);
 
-  if (pathname === "/login" || pathname === "/signup") return null;
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/fund") return null;
 
   const ownedProjects = projects.filter((p) => p.role === "owner");
   const memberProjects = projects.filter((p) => p.role !== "owner");
