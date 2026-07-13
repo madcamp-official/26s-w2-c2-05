@@ -34,7 +34,6 @@ export default function ProjectPage() {
 
   const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [repoInput, setRepoInput] = useState("");
   const [pushing, setPushing] = useState(false);
@@ -123,12 +122,6 @@ export default function ProjectPage() {
     a.download = "CLAUDE.md";
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  async function handleCopy() {
-    await navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
   }
 
   async function handleSaveRepo(e: React.FormEvent) {
@@ -336,12 +329,6 @@ export default function ProjectPage() {
               className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40"
             >
               다운로드
-            </button>
-            <button
-              onClick={handleCopy}
-              className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40"
-            >
-              {copied ? "복사됨" : "복사하기"}
             </button>
             <button
               type="button"
