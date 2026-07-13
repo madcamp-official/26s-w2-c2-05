@@ -196,6 +196,8 @@ export default function ProjectPage() {
         const latestMyRecs = await getMyRecommendations(projectId);
         setPersonalRecs(latestMyRecs);
       }
+
+      window.location.reload();
     } catch (err) {
       setError((err as Error).message);
     } finally {
