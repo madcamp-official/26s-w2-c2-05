@@ -314,7 +314,7 @@ export default function ProjectPage() {
           </div>
 
           <label className="mb-2 mt-10 block text-sm font-medium text-ink/70">
-            CLAUDE.md 내용
+            CLAUDE.md 내용을 수정 후 저장을 눌러주세요
           </label>
           <textarea
             value={content}
@@ -372,8 +372,10 @@ export default function ProjectPage() {
               {sessionFile ? `${sessionFile.name} 업로드` : "업로드"}
             </button>
             <p className="mt-3 text-xs leading-relaxed text-ink/50">
-              세션 JSONL 파일은 <code className="rounded bg-orange-light/40 px-1">C:Users/(username)/.claude/projects/</code> 폴더
-              안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
+               <code className="rounded bg-orange-light/40 px-1">C:\Users\(username)\.claude\projects\
+              </code>
+              <br />
+              세션 JSONL 파일은 위 링크 폴더안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
             </p>
           </div>
 
