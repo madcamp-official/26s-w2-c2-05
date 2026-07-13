@@ -301,7 +301,11 @@ RPM 100 / TPM 30K / RPD 1,000. **RPD 20이 임베딩(1,000)보다 훨씬 타이�
 
 ```
 26s-w2-c2-05/
-├── ai-server/          # AI 서버 (Gemini /analyze, /embed) — 예정, docs/sprints/2026-07-12-ai-server-sprint.md
+├── ai_server/          # AI 서버 (Gemini /analyze, /embed) — docs/sprints/2026-07-12-ai-server-sprint.md
+│                       # (2026-07-13 결정: 원래 ai-server였으나, 파이썬 패키지 import
+│                       #  대상 디렉토리는 하이픈을 쓸 수 없어(`from ai_server.schemas
+│                       #  import ...`) 언더스코어로 변경. web-server는 이 제약이 없어
+│                       #  하이픈 유지)
 ├── web-server/         # 웹 서버 (FastAPI, SQLite, 비즈니스 로직) — 이미 존재
 ├── frontend/           # Next.js — 이미 존재
 ├── docs/
