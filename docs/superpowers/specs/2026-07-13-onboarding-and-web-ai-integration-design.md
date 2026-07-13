@@ -6,28 +6,47 @@ Status: DRAFT (승인 대기)
 ## 배경 — 왜 이 문서가 필요한가
 
 `ai_server`는 이미 완성돼 있다(`/analyze`, `/embed`, 24개 테스트 통과,
-2026-07-13 스프린트 완료). 그런데 `web-server`를 실제로 열어보니 두 가지가
-확인됐다:
+2026-07-13 스프린트 완료).
 
-1. **세션 업로드 → AI 분석 연동 자체가 아직 없다.** `web-server/main.py`엔
-   `projects`/`auth`/`github_auth`/`presence` 라우터만 등록돼 있고, 세션
-   업로드 엔드포인트나 `ai_client.py`가 없다.
-2. **`DESIGN.md`에 적힌 팀 매칭 아키텍처(`RecommendationGroup`/
-   `GroupMembership`/임계값 승격)가 실제로 구현된 모델과 다르다.**
-   실제 `web-server/models.py`는 훨씬 단순하다:
-   - `Project.content` — CLAUDE.md 텍스트 전체를 통째로 저장하는 필드
-     하나 (공유 문서 방식, 알고리즘 매칭 없음)
-   - `ProjectMember.role`("owner"/"member") — 이미 완전히 동작 중
-     (생성자=owner, `POST /projects/{id}/invite`로 멤버 초대, rename/
-     delete/set_github_repo는 owner 전용으로 이미 막혀 있음)
-   - `ProjectRevision` — content 수정 이력만 기록
+**(2026-07-13 갱신) 이 문서를 처음 쓸 때는 `web-server`에 세션 업로드/AI
+연동이 전혀 없다고 확인했었는데, 그사이 `develop`에 팀원이 이미 대부분을
+구현해서 머지됐다.** 실제로 다시 열어보고 확인한 현재 상태:
 
-   즉 팀원은 "여러 명 세션을 매칭해서 임계값 넘으면 자동 승격"이라는
-   복잡한 모델 대신, **"멤버 누구나 편집 가능한 공유 CLAUDE.md 문서 +
-   owner만 GitHub에 push"**라는 훨씬 단순한 모델로 이미 방향을 잡아둔
-   상태다. 이 문서는 이 **실제 모델을 기준으로** AI 연동을 설계한다.
-   (`DESIGN.md`의 "DB 스키마" 절은 이 실제 구현과 어긋나 있어 별도로
-   바로잡을 필요가 있음 — 이 문서의 스코프는 아니지만 기록해 둠.)
+- **Stage 1(세션 업로드 → 분석 → 매칭 → 팀 승격) 파이프라인은 이미
+  구현돼 있다.** `web-server/models.py`에 `Session`/
+  `PersonalRecommendation`/`RecommendationGroup`/`GroupMembership`이
+  전부 있고(`DESIGN.md` 원안과 거의 동일, `member_id` 대신 자체 `User`
+  모델의 `user_id` 사용), `web-server/matching.py`가
+  `PROMOTION_THRESHOLD = 2`로 임계값 승격 로직을 구현하며,
+  `web-server/routers/sessions.py`(`POST /projects/{project_id}/sessions`)
+  가 전처리 → `ai_client.analyze()` → 매칭 → 저장까지 전부 오케스트레이션
+  한다. `web-server/ai_client.py`도 이미 있고, 우리 `ai_server`의 실제
+  429(할당량 소진)/그 외 에러 계약을 정확히 반영해서 구현돼 있다
+  (`GeminiQuotaExceeded` 별도 처리).
+- **`ProjectMember.role`("owner"/"member") 권한 체계도 이미 동작 중** —
+  생성자=owner, `POST /projects/{id}/invite`로 멤버 초대, rename/delete/
+  set_github_repo는 이미 owner 전용으로 막혀 있음.
+- **`Project.content`** — CLAUDE.md 텍스트 전체를 저장하는 단일 필드.
+  `PUT /projects/{id}`로 멤버 누구나 자유롭게 수정 가능(자유 텍스트
+  편집기, 승격 여부와 무관하게 열려 있음). `ProjectRevision`이 수정
+  이력을 기록.
+
+**아직 없는 것 (이 문서가 실제로 다뤄야 할 것)**:
+1. **Stage 0(온보딩 → 베이스 CLAUDE.md 생성)** — 완전히 새로 만들어야 함
+2. **팀 승격된(`promoted=True`) 추천을 `content`에 실제로 반영하는
+   메커니즘** — DB엔 쌓이는데, 이걸 `PUT /projects/{id}`로 옮겨 적는
+   전용 엔드포인트나 자동화가 아직 없음 (지금은 사람이 직접 복사해서
+   붙여넣는 것으로 추정)
+3. **`POST /projects/{id}/push` 권한 버그** — `routers/projects.py:276`이
+   여전히 `member is None`만 확인하고 `role == "owner"`를 안 봄. "owner만
+   push 결정/실행"이라는 요구사항과 어긋난 상태가 머지 이후에도 그대로
+   남아 있음(실제 코드로 재확인함).
+4. hook/skill 후보의 저장·push — `Project`에 hooks 저장용 필드 자체가
+   없음
+
+(`DESIGN.md`의 "DB 스키마" 절 표현(`Member`, `team_id` 등)은 실제
+`User`/`user_id` 기반 구현과 이름이 달라 별도로 바로잡을 필요가 있음 —
+이 문서의 스코프는 아니지만 기록해 둠.)
 
 이와 별개로, 사용자가 유저플로우에 **Stage 0(온보딩)** 을 추가하고 싶어함
 — 세션을 시작하기 전에 초기 CLAUDE.md 규칙을 먼저 세우고 싶다는 요구.
@@ -65,30 +84,43 @@ Status: DRAFT (승인 대기)
 [웹서버] project.content를 이 결과로 설정 (기존 DEFAULT_MD 대체)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[Stage 1 — 세션마다 반복]
+[Stage 1 — 세션마다 반복. **이미 구현되어 있음**, 아래는 현황 정리]
    ↓
 [프론트] 세션 JSONL 업로드
    ↓
-[웹서버: POST /projects/{id}/members/{member_id}/sessions] (신규)
-   전처리(규칙 기반) → ai_server의 /analyze 호출 → 후보(hook/claude_md)
+[웹서버: POST /projects/{project_id}/sessions] (기존, 이미 동작)
+   전처리(규칙 기반) → ai_client.analyze() → 매칭(matching.py,
+   PROMOTION_THRESHOLD=2) → RecommendationGroup/GroupMembership 저장
    ↓
-[프론트] 후보를 "제안 카드"로 표시 (자동 반영 아님)
-   ↓
-멤버가 claude_md 후보를 "적용" 클릭
-   ↓
-[웹서버: 기존 PUT /projects/{id}] content에 반영 (멤버 누구나 가능,
-기존 권한 그대로)
+[신규로 필요한 것] 승격된(promoted=True) 그룹을 "적용" 가능한 형태로
+   보여주고, 사용자가 승인하면 PUT /projects/{id}로 content에 반영하는
+   전용 엔드포인트/프론트 UI — 아래 "보류 항목" 참고
    ↓
 owner가 검토 후 "push" 클릭
    ↓
-[웹서버: 기존 POST /projects/{id}/push] — **owner 전용으로 수정 필요**
-(현재는 멤버 아무나 호출 가능한 버그, 아래 참고)
+[웹서버: 기존 POST /projects/{id}/push] — **owner 전용으로 고쳐야 함**
+(routers/projects.py:276, 아직도 멤버 아무나 호출 가능한 버그로 확인됨)
 ```
 
-**hook/skill 후보**: 이번 스코프에서는 제안 카드로 **표시만** 하고
-적용/저장/push는 하지 않는다. 이유: `Project`에 hook을 저장할 필드
-(`hooks_json` 같은)가 없고, `push_to_github`도 CLAUDE.md 파일 하나만
-쓰도록 짜여 있다. hook 저장/push는 다음 스프린트로 미룬다.
+## 보류 항목 — "my" vs "team" 적용 정책 (팀 논의 중, 2026-07-13)
+
+`RecommendationGroup.promoted`(2명 이상 매칭)로 이미 "개인만의 패턴"과
+"팀에서 검증된 패턴"이 구분되고 있지만, 정작 `content`에 반영하는 통로
+(`PUT /projects/{id}`)는 승격 여부와 무관하게 열려 있는 자유 텍스트
+편집기라, 기술적으로는 개인 패턴도 그대로 붙여넣을 수 있다.
+
+논의된 두 입장:
+- **허용 + 라벨링**: 막을 수 없으니(어차피 수동 편집 우회 가능)
+  "나만의 패턴" vs "팀 N명에게서 발견됨" 배지만 명확히 보여주자
+- **승격된 것만 "적용" 액션 제공**: CLAUDE.md의 의의(팀이 실제 합의한
+  내용)를 지키려면, AI가 적극적으로 권하는 원클릭 "적용" 버튼은 최소한
+  `promoted=True`인 것에만 존재해야 한다 — 자유 편집기를 막자는 게
+  아니라, **도구가 편의 기능으로 뭘 권장하느냐**의 문제
+
+**결정 보류** — 팀원과 논의 후 확정 예정. 이 결정에 따라 Stage 1의
+"적용" 관련 구현(신규 엔드포인트 필요 여부, 프론트 UI 분기)이 달라지므로,
+**Stage 1 계획은 이 결정이 난 뒤에 짠다.** Stage 0(온보딩)은 이 결정과
+무관하므로 먼저 진행 가능.
 
 ## 컴포넌트 상세
 
@@ -134,23 +166,18 @@ class OnboardingResponse(BaseModel):
 Surgical Changes에 맞다. 프론트에서는 프로젝트 생성 직후 바로 온보딩
 폼으로 이동시키면 사용자 경험상 (A)와 차이 없음.
 
-### 3. 웹서버 — 세션 업로드 파이프라인 (신규, 원래 플랜 Task 3/4/6 재사용 — Task 5 제외)
+### 3. 웹서버 — 세션 업로드 파이프라인 (이미 구현됨 — 신규 작업 아님)
 
-`docs/superpowers/plans/2026-07-10-web-server-frontend.md`의 Task 3
-(전처리)·Task 4(`ai_client.py`)는 그대로 유효하다 — AI서버 계약과
-무관한 순수 로직/HTTP 클라이언트라서 팀 매칭 모델 변경의 영향을 안
-받는다. **Task 5(매칭/병합 로직)는 스킵** — 임계값 승격 개념 자체가
-없어졌으므로.
+전처리(`preprocessing.py`) → `ai_client.analyze()` → 매칭(`matching.py`)
+→ `RecommendationGroup`/`GroupMembership` 저장까지 `routers/sessions.py`
+가 이미 전부 오케스트레이션하고 있다. 이 부분은 **이번 계획에서 새로
+만들 게 없다.**
 
-Task 6(세션 업로드 오케스트레이션)은 아래처럼 단순화된다:
-- `POST /projects/{project_id}/members/{member_id}/sessions` 업로드
-- 전처리 → 패턴 없으면 `status: "no_patterns"`로 즉시 응답
-- 패턴 있으면 `ai_client.analyze()` 호출 → 후보 리스트를 **그대로**
-  응답에 실어 반환 (DB에 `RecommendationGroup` 매칭/저장하지 않음 —
-  프론트가 그 응답을 받아서 "제안 카드"로 표시하고, 사용자가 적용을
-  누르면 그때 기존 `PUT /projects/{id}`를 별도로 호출)
-- `PersonalRecommendation` 테이블은 유지해도 되고(누가 어떤 제안을
-  받았는지 이력), 안 만들어도 무방 — 이번 스코프에 필수는 아님
+남은 신규 작업은 "적용" 단계뿐이다: 승격된 그룹(`promoted=True`,
+`GET /projects/{project_id}/recommendations/team`으로 이미 조회 가능)을
+사용자가 보고 승인하면 `PUT /projects/{id}`로 `content`에 반영하는
+프론트 UI(+ 필요하면 백엔드에 편의 엔드포인트 하나 추가). 구체적인 범위는
+위 "보류 항목"의 my/team 결정에 달려 있어 이 문서에서 확정하지 않는다.
 
 ### 4. 권한 버그 수정 — `POST /projects/{id}/push`
 
