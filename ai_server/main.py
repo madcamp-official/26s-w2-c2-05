@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from fastapi import FastAPI, Depends, HTTPException
 from google import genai
@@ -10,8 +11,13 @@ from .rate_limit import gemini_analyze_rpd_counter
 
 app = FastAPI()
 
+RPD_EXHAUSTED_DETAIL = "오늘의 요청 한도를 모두 사용했습니다"
 
+
+@lru_cache()
 def get_gemini_client() -> genai.Client:
+    # 요청마다 새로 만들지 않고 한 번만 만들어서 재사용 — genai.Client는
+    # 내부적으로 HTTP 커넥션 풀을 들고 있어 매번 새로 만들면 낭비다.
     return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
@@ -27,11 +33,11 @@ async def analyze(
     # 더 여유 있다고 착각해 초과 요청을 허용할 위험이 있다(2026-07-13, 최종
     # 브랜치 리뷰에서 확인).
     if not gemini_analyze_rpd_counter.consume():
-        raise HTTPException(status_code=429, detail="오늘의 요청 한도를 모두 사용했습니다")
+        raise HTTPException(status_code=429, detail=RPD_EXHAUSTED_DETAIL)
     try:
         result = await call_gemini_analyze(client, req.pattern_summary)
     except GeminiQuotaExceeded:
-        raise HTTPException(status_code=429, detail="오늘의 요청 한도를 모두 사용했습니다")
+        raise HTTPException(status_code=429, detail=RPD_EXHAUSTED_DETAIL)
     except GeminiCallFailed:
         raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
     return AnalyzeEndpointResponse(
