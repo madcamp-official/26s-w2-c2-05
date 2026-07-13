@@ -45,3 +45,42 @@ class ProjectRevision(SQLModel, table=True):
     user_id: int = Field(foreign_key="users.user_id")
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Session(SQLModel, table=True):
+    __tablename__ = "sessions"
+    id: str = Field(default_factory=new_id, primary_key=True)
+    project_id: str = Field(foreign_key="projects.id")
+    user_id: int = Field(foreign_key="users.user_id")
+    status: str = Field(default="processed")  # 'processed' | 'no_patterns' | 'failed'
+    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+
+class PersonalRecommendation(SQLModel, table=True):
+    __tablename__ = "personal_recommendations"
+    id: str = Field(default_factory=new_id, primary_key=True)
+    session_id: str = Field(foreign_key="sessions.id")
+    user_id: int = Field(foreign_key="users.user_id")
+    type: str  # 'hook' | 'claude_md'
+    payload: str  # JSON-encoded candidate
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RecommendationGroup(SQLModel, table=True):
+    __tablename__ = "recommendation_groups"
+    id: str = Field(default_factory=new_id, primary_key=True)
+    project_id: str = Field(foreign_key="projects.id")
+    type: str  # 'hook' | 'claude_md'
+    representative_text: str
+    event: Optional[str] = None  # hook 타입만 사용
+    matcher: Optional[str] = None  # hook 타입만 사용
+    representative_vector: Optional[str] = None  # JSON 배열, claude_md만
+    promoted: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class GroupMembership(SQLModel, table=True):
+    __tablename__ = "group_memberships"
+    group_id: str = Field(foreign_key="recommendation_groups.id", primary_key=True)
+    user_id: int = Field(foreign_key="users.user_id", primary_key=True)
+    session_id: str = Field(foreign_key="sessions.id")
+    original_text: str
+    reason: str
+    confidence: str

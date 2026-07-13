@@ -11,9 +11,16 @@ import {
   listRevisions,
   getRevision,
   renameProject,
+  uploadSession,
+  getMyRecommendations,
+  getTeamRecommendations,
   type Project,
   type Revision,
   type RevisionDetail,
+  type PersonalRecommendation,
+  type TeamRecommendation,
+  type HookPayload,
+  type ClaudeMdPayload,
 } from "@/lib/projects";
 import { getGithubStatus } from "@/lib/auth";
 
@@ -48,10 +55,15 @@ export default function ProjectPage() {
   const [editingRepo, setEditingRepo] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const [sessionFile, setSessionFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [previewRevision, setPreviewRevision] = useState<RevisionDetail | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [personalRecs, setPersonalRecs] = useState<PersonalRecommendation[]>([]);
+  const [teamRecs, setTeamRecs] = useState<TeamRecommendation[]>([]);
+  const [appliedPersonal, setAppliedPersonal] = useState<Set<number>>(new Set());
+  const [appliedTeam, setAppliedTeam] = useState<Set<string>>(new Set());
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,6 +103,65 @@ export default function ProjectPage() {
       .then(setRevisions)
       .catch((err) => setError((err as Error).message));
   }, [projectId]);
+
+  useEffect(() => {
+    getMyRecommendations(projectId)
+      .then(setPersonalRecs)
+      .catch((err) => setError((err as Error).message));
+    getTeamRecommendations(projectId)
+      .then(setTeamRecs)
+      .catch((err) => setError((err as Error).message));
+  }, [projectId]);
+
+  async function handleUploadSession(file: File) {
+    setError(null);
+    setUploadMessage(null);
+    setUploading(true);
+    try {
+      const result = await uploadSession(projectId, file);
+      setUploadMessage(
+        result.status === "no_patterns"
+          ? "반복되는 패턴을 찾지 못했어요"
+          : "업로드 완료! 추천을 확인해보세요"
+      );
+      const [myRecs, latestTeamRecs] = await Promise.all([
+        getMyRecommendations(projectId),
+        getTeamRecommendations(projectId),
+      ]);
+      setPersonalRecs(myRecs);
+      setTeamRecs(latestTeamRecs);
+      setAppliedPersonal(new Set());
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function formatCandidateForContent(
+    type: "hook" | "claude_md",
+    payload: HookPayload | ClaudeMdPayload
+  ): string {
+    if (type === "claude_md") {
+      return `- ${(payload as ClaudeMdPayload).suggested_text}`;
+    }
+    const hook = payload as HookPayload;
+    return `- (hook 제안) "${hook.command}"을(를) ${hook.event} 시 자동 실행 — ${hook.reason}`;
+  }
+
+  function applyPersonalRecommendation(index: number, rec: PersonalRecommendation) {
+    setContent((prev) => `${prev.trimEnd()}\n${formatCandidateForContent(rec.type, rec.payload)}\n`);
+    setAppliedPersonal((prev) => new Set(prev).add(index));
+  }
+
+  function applyTeamRecommendation(rec: TeamRecommendation) {
+    const line =
+      rec.type === "claude_md"
+        ? `- ${rec.representative_text}`
+        : `- (hook 제안) "${rec.representative_text}" 자동 실행`;
+    setContent((prev) => `${prev.trimEnd()}\n${line}\n`);
+    setAppliedTeam((prev) => new Set(prev).add(rec.id));
+  }
 
   async function handleSave() {
     setError(null);
@@ -297,7 +368,7 @@ export default function ProjectPage() {
           {error}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
         <section>
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             {project?.role === "owner" && !githubConnected && (
@@ -384,29 +455,105 @@ export default function ProjectPage() {
           </div>
         </section>
 
-        <aside>
+        <aside className="min-w-0">
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-ink/70">세션 업로드</h2>
             <input
               ref={sessionFileInputRef}
               type="file"
               accept=".jsonl"
-              onChange={(e) => setSessionFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleUploadSession(f);
+                e.target.value = "";
+              }}
               className="hidden"
             />
             <button
               type="button"
               onClick={() => sessionFileInputRef.current?.click()}
-              className="w-full rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark"
+              disabled={uploading}
+              className="w-full rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {sessionFile ? `${sessionFile.name} 업로드` : "업로드"}
+              {uploading ? "업로드 중..." : "업로드"}
             </button>
+            {uploadMessage && (
+              <p className="mt-2 text-sm text-ink/70">{uploadMessage}</p>
+            )}
             <p className="mt-3 text-xs leading-relaxed text-ink/50">
                <code className="rounded bg-orange-light/40 px-1">C:\Users\(username)\.claude\projects\
               </code>
               <br />
               세션 JSONL 파일은 위 링크 폴더안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
             </p>
+          </div>
+
+          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-sm font-medium text-ink/70">내 추천</h2>
+            {personalRecs.length === 0 ? (
+              <p className="text-sm text-ink/40">아직 추천이 없습니다</p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {personalRecs.map((rec, i) => {
+                  const isApplied = appliedPersonal.has(i);
+                  return (
+                    <div
+                      key={i}
+                      className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
+                    >
+                      <p className="text-sm text-ink/80">{rec.payload.reason}</p>
+                      <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
+                        {rec.type === "claude_md"
+                          ? (rec.payload as ClaudeMdPayload).suggested_text
+                          : `${(rec.payload as HookPayload).event} → ${(rec.payload as HookPayload).command}`}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => applyPersonalRecommendation(i, rec)}
+                        disabled={isApplied}
+                        className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
+                      >
+                        {isApplied ? "반영됨" : "적용하기"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+            <h2 className="mb-2 text-sm font-medium text-ink/70">팀 추천</h2>
+            {teamRecs.length === 0 ? (
+              <p className="text-sm text-ink/40">아직 팀 추천이 없습니다</p>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {teamRecs.map((rec) => {
+                  const isApplied = appliedTeam.has(rec.id);
+                  return (
+                    <div
+                      key={rec.id}
+                      className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
+                    >
+                      <p className="text-xs text-ink/50">
+                        {rec.affected_members}명에게서 나온 규칙
+                      </p>
+                      <code className="mt-1 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
+                        {rec.representative_text}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => applyTeamRecommendation(rec)}
+                        disabled={isApplied}
+                        className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
+                      >
+                        {isApplied ? "반영됨" : "적용하기"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
