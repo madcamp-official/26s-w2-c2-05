@@ -368,7 +368,7 @@ export default function ProjectPage() {
           {error}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
         <section>
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             {project?.role === "owner" && !githubConnected && (
@@ -455,7 +455,7 @@ export default function ProjectPage() {
           </div>
         </section>
 
-        <aside>
+        <aside className="min-w-0">
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-ink/70">세션 업로드</h2>
             <input
@@ -493,13 +493,13 @@ export default function ProjectPage() {
             {personalRecs.length === 0 ? (
               <p className="text-sm text-ink/40">아직 추천이 없습니다</p>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex gap-3 overflow-x-auto pb-2">
                 {personalRecs.map((rec, i) => {
                   const isApplied = appliedPersonal.has(i);
                   return (
                     <div
                       key={i}
-                      className="rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
+                      className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
                     >
                       <p className="text-sm text-ink/80">{rec.payload.reason}</p>
                       <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
@@ -527,13 +527,13 @@ export default function ProjectPage() {
             {teamRecs.length === 0 ? (
               <p className="text-sm text-ink/40">아직 팀 추천이 없습니다</p>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex gap-3 overflow-x-auto pb-2">
                 {teamRecs.map((rec) => {
                   const isApplied = appliedTeam.has(rec.id);
                   return (
                     <div
                       key={rec.id}
-                      className="rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
+                      className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
                     >
                       <p className="text-xs text-ink/50">
                         {rec.affected_members}명에게서 나온 규칙
