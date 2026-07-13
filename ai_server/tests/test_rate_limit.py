@@ -4,13 +4,20 @@ import pytest
 from ai_server.rate_limit import (
     RpdCounter,
     gemini_analyze_limiter,
+    gemini_analyze_rpd_counter,
     gemini_embed_limiter,
 )
 
 
-def test_analyze_limiter_configured_at_10_per_60_seconds():
-    assert gemini_analyze_limiter.max_rate == 10
+def test_analyze_limiter_configured_at_15_per_60_seconds():
+    assert gemini_analyze_limiter.max_rate == 15
     assert gemini_analyze_limiter.time_period == 60
+
+
+def test_analyze_rpd_counter_configured_at_500():
+    # gemini-3.1-flash-lite 실측(AI Studio, 2026-07-13): RPD 500. 예전
+    # 모델(gemini-2.5-flash-lite, RPD 20)이 폐기되면서 갱신됨(T-08 중 발견).
+    assert gemini_analyze_rpd_counter.remaining() == 500
 
 
 def test_embed_limiter_configured_at_100_per_60_seconds():
