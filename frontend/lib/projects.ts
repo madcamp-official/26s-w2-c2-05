@@ -9,6 +9,7 @@ export type Project = {
   id: string;
   name: string;
   content: string;
+  hooks_content: string;
   github_repo: string | null;
   created_at: string;
   role: "owner" | "member";
@@ -80,6 +81,19 @@ export async function saveProjectContent(id: string, content: string): Promise<P
   return res.json();
 }
 
+export async function saveProjectHooks(id: string, hooksContent: string): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}/hooks`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ hooks_content: hooksContent }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "저장에 실패했습니다");
+  }
+  return res.json();
+}
+
 export async function setGithubRepo(id: string, repo: string): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${id}/github`, {
     method: "PUT",
@@ -131,14 +145,19 @@ export type Revision = {
   id: string;
   created_at: string;
   username: string;
+  target: "content" | "hooks";
 };
 
 export type RevisionDetail = Revision & {
   content: string;
 };
 
-export async function listRevisions(id: string): Promise<Revision[]> {
-  const res = await fetch(`${API_BASE}/projects/${id}/revisions`, {
+export async function listRevisions(
+  id: string,
+  target?: "content" | "hooks"
+): Promise<Revision[]> {
+  const query = target ? `?target=${target}` : "";
+  const res = await fetch(`${API_BASE}/projects/${id}/revisions${query}`, {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("변경 이력을 불러오지 못했습니다");
@@ -219,6 +238,8 @@ export type TeamRecommendation = {
   affected_members: number;
   applied: boolean;
   evidence: { user_id: number; original_text: string }[];
+  event: string | null;
+  matcher: string | null;
 };
 
 export async function getTeamRecommendations(id: string): Promise<TeamRecommendation[]> {

@@ -168,3 +168,11 @@ def test_onboarding_propagates_429_when_quota_exceeded(client, db_session, monke
     )
 
     assert resp.status_code == 429
+def test_create_project_response_includes_default_hooks_content(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+
+    resp = client.post(
+        "/projects", json={"name": "test"}, headers=auth_headers(owner_token)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["hooks_content"] == '{\n  "hooks": {}\n}'

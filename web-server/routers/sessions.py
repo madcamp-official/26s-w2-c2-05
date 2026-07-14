@@ -167,6 +167,8 @@ class TeamRecommendationOut(BaseModel):
     affected_members: int
     applied: bool
     evidence: list[EvidenceOut]
+    event: str | None = None
+    matcher: str | None = None
 
 
 @router.get(
@@ -201,6 +203,8 @@ def get_team_recommendations(
                     EvidenceOut(user_id=m.user_id, original_text=m.original_text)
                     for m in memberships
                 ],
+                event=group.event,
+                matcher=group.matcher,
             )
         )
     return out

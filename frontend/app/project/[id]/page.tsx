@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import {
   getProject,
   saveProjectContent,
+  saveProjectHooks,
   setGithubRepo,
   pushToGithub,
   inviteMember,
@@ -38,12 +39,39 @@ function isValidRepoInput(value: string): boolean {
   return REPO_URL_RE.test(value) || REPO_SHORT_RE.test(value);
 }
 
+type HookEntry = { matcher: string; hooks: { type: string; command: string }[] };
+
+function mergeHookIntoJson(
+  hooksJson: string,
+  event: string,
+  matcher: string,
+  command: string
+): string {
+  const parsed = JSON.parse(hooksJson);
+  if (typeof parsed.hooks !== "object" || parsed.hooks === null) {
+    parsed.hooks = {};
+  }
+  const entries: HookEntry[] = parsed.hooks[event] ?? [];
+  const matcherEntry = entries.find((e) => e.matcher === matcher);
+  if (matcherEntry) {
+    if (!matcherEntry.hooks.some((h) => h.command === command)) {
+      matcherEntry.hooks.push({ type: "command", command });
+    }
+  } else {
+    entries.push({ matcher, hooks: [{ type: "command", command }] });
+  }
+  parsed.hooks[event] = entries;
+  return JSON.stringify(parsed, null, 2);
+}
+
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
 
   const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
+  const [hooksContent, setHooksContent] = useState("");
+  const [editorTab, setEditorTab] = useState<"content" | "hooks">("content");
   const [error, setError] = useState<string | null>(null);
   const [repoInput, setRepoInput] = useState("");
   const [pushing, setPushing] = useState(false);
@@ -68,6 +96,10 @@ export default function ProjectPage() {
   const [pendingAppliedGroupIds, setPendingAppliedGroupIds] = useState<Set<string>>(new Set());
   const [recTab, setRecTab] = useState<"my" | "team">("my");
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeRecType = editorTab === "content" ? "claude_md" : "hook";
+  const visiblePersonalRecs = personalRecs.filter((rec) => rec.type === activeRecType);
+  const visibleTeamRecs = teamRecs.filter((rec) => rec.type === activeRecType);
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
@@ -96,6 +128,7 @@ export default function ProjectPage() {
       .then((p) => {
         setProject(p);
         setContent(p.content);
+        setHooksContent(p.hooks_content);
         setRepoInput(p.github_repo ?? "");
       })
       .catch((err) => setError((err as Error).message));
@@ -141,28 +174,44 @@ export default function ProjectPage() {
     }
   }
 
-  function formatCandidateForContent(
-    type: "hook" | "claude_md",
-    payload: HookPayload | ClaudeMdPayload
-  ): string {
-    if (type === "claude_md") {
-      return `- ${(payload as ClaudeMdPayload).suggested_text}`;
-    }
-    const hook = payload as HookPayload;
-    return `- (hook 제안) "${hook.command}"을(를) ${hook.event} 시 자동 실행 — ${hook.reason}`;
+  function formatClaudeMdCandidate(payload: ClaudeMdPayload): string {
+    return `- ${payload.suggested_text}`;
   }
 
   function applyPersonalRecommendation(rec: PersonalRecommendation) {
-    setContent((prev) => `${prev.trimEnd()}\n${formatCandidateForContent(rec.type, rec.payload)}\n`);
+    if (rec.type === "hook") {
+      const hook = rec.payload as HookPayload;
+      try {
+        setHooksContent(mergeHookIntoJson(hooksContent, hook.event, hook.matcher, hook.command));
+      } catch {
+        setError("Hooks 탭의 JSON이 올바르지 않아 추천을 적용할 수 없어요. 먼저 JSON을 고쳐주세요.");
+        return;
+      }
+    } else {
+      setContent(
+        (prev) => `${prev.trimEnd()}\n${formatClaudeMdCandidate(rec.payload as ClaudeMdPayload)}\n`
+      );
+    }
     setPendingAppliedPersonalIds((prev) => new Set(prev).add(rec.id));
   }
 
   function applyTeamRecommendation(rec: TeamRecommendation) {
-    const line =
-      rec.type === "claude_md"
-        ? `- ${rec.representative_text}`
-        : `- (hook 제안) "${rec.representative_text}" 자동 실행`;
-    setContent((prev) => `${prev.trimEnd()}\n${line}\n`);
+    if (rec.type === "hook") {
+      if (!rec.event || !rec.matcher) {
+        setError("이 팀 추천은 event/matcher 정보가 없어 적용할 수 없어요.");
+        return;
+      }
+      try {
+        setHooksContent(
+          mergeHookIntoJson(hooksContent, rec.event, rec.matcher, rec.representative_text)
+        );
+      } catch {
+        setError("Hooks 탭의 JSON이 올바르지 않아 추천을 적용할 수 없어요. 먼저 JSON을 고쳐주세요.");
+        return;
+      }
+    } else {
+      setContent((prev) => `${prev.trimEnd()}\n- ${rec.representative_text}\n`);
+    }
     setPendingAppliedGroupIds((prev) => new Set(prev).add(rec.id));
   }
 
@@ -170,31 +219,75 @@ export default function ProjectPage() {
     setError(null);
     setSaving(true);
     try {
+      if (editorTab === "hooks") {
+        const updated = await saveProjectHooks(projectId, hooksContent);
+        setProject(updated);
+        const latest = await listRevisions(projectId);
+        setRevisions(latest);
+
+        const hookGroupIds = Array.from(pendingAppliedGroupIds).filter(
+          (id) => teamRecs.find((r) => r.id === id)?.type === "hook"
+        );
+        if (hookGroupIds.length > 0) {
+          await Promise.all(
+            hookGroupIds.map((groupId) => applyRecommendationGroup(projectId, groupId))
+          );
+          setPendingAppliedGroupIds((prev) => {
+            const next = new Set(prev);
+            hookGroupIds.forEach((id) => next.delete(id));
+            return next;
+          });
+          setTeamRecs(await getTeamRecommendations(projectId));
+        }
+
+        const hookPersonalIds = Array.from(pendingAppliedPersonalIds).filter(
+          (id) => personalRecs.find((r) => r.id === id)?.type === "hook"
+        );
+        if (hookPersonalIds.length > 0) {
+          await Promise.all(
+            hookPersonalIds.map((recId) => applyPersonalRecommendationApi(projectId, recId))
+          );
+          setPendingAppliedPersonalIds((prev) => {
+            const next = new Set(prev);
+            hookPersonalIds.forEach((id) => next.delete(id));
+            return next;
+          });
+          setPersonalRecs(await getMyRecommendations(projectId));
+        }
+        return;
+      }
+
       const updated = await saveProjectContent(projectId, content);
       setProject(updated);
       const latest = await listRevisions(projectId);
       setRevisions(latest);
 
-      if (pendingAppliedGroupIds.size > 0) {
+      const claudeMdGroupIds = Array.from(pendingAppliedGroupIds).filter(
+        (id) => teamRecs.find((r) => r.id === id)?.type === "claude_md"
+      );
+      if (claudeMdGroupIds.length > 0) {
         await Promise.all(
-          Array.from(pendingAppliedGroupIds).map((groupId) =>
-            applyRecommendationGroup(projectId, groupId)
-          )
+          claudeMdGroupIds.map((groupId) => applyRecommendationGroup(projectId, groupId))
         );
-        setPendingAppliedGroupIds(new Set());
-        const latestTeamRecs = await getTeamRecommendations(projectId);
-        setTeamRecs(latestTeamRecs);
+        setPendingAppliedGroupIds((prev) => {
+          const next = new Set(prev);
+          claudeMdGroupIds.forEach((id) => next.delete(id));
+          return next;
+        });
       }
 
-      if (pendingAppliedPersonalIds.size > 0) {
+      const claudeMdPersonalIds = Array.from(pendingAppliedPersonalIds).filter(
+        (id) => personalRecs.find((r) => r.id === id)?.type === "claude_md"
+      );
+      if (claudeMdPersonalIds.length > 0) {
         await Promise.all(
-          Array.from(pendingAppliedPersonalIds).map((recId) =>
-            applyPersonalRecommendationApi(projectId, recId)
-          )
+          claudeMdPersonalIds.map((recId) => applyPersonalRecommendationApi(projectId, recId))
         );
-        setPendingAppliedPersonalIds(new Set());
-        const latestMyRecs = await getMyRecommendations(projectId);
-        setPersonalRecs(latestMyRecs);
+        setPendingAppliedPersonalIds((prev) => {
+          const next = new Set(prev);
+          claudeMdPersonalIds.forEach((id) => next.delete(id));
+          return next;
+        });
       }
 
       window.location.reload();
@@ -227,23 +320,12 @@ export default function ProjectPage() {
       return;
     }
     try {
-      const updated = await renameProject(projectId, name);
-      setProject(updated);
+      await renameProject(projectId, name);
+      window.location.reload();
     } catch (err) {
       setError((err as Error).message);
-    } finally {
       setEditingName(false);
     }
-  }
-
-  function handleDownload() {
-    const blob = new Blob([content], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "CLAUDE.md";
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function handleSaveRepo(e: React.FormEvent) {
@@ -299,7 +381,7 @@ export default function ProjectPage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-7xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           {editingName ? (
@@ -395,7 +477,7 @@ export default function ProjectPage() {
           {error}
         </p>
       )}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[4fr_4fr_2fr]">
         <section>
           <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             {project?.role === "owner" && !githubConnected && (
@@ -447,38 +529,69 @@ export default function ProjectPage() {
             )}
           </div>
 
-          <label className="mb-2 mt-10 block text-sm font-medium text-ink/70">
-            CLAUDE.md 내용을 수정 후 저장을 눌러주세요
+          <div className="mb-2 mt-10 flex gap-1">
+            <button
+              type="button"
+              onClick={() => setEditorTab("content")}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                editorTab === "content"
+                  ? "bg-orange text-white"
+                  : "text-ink/60 hover:bg-orange-light/40"
+              }`}
+            >
+              CLAUDE.md
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditorTab("hooks")}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                editorTab === "hooks"
+                  ? "bg-orange text-white"
+                  : "text-ink/60 hover:bg-orange-light/40"
+              }`}
+            >
+              Hooks
+            </button>
+          </div>
+          <label className="mb-2 block text-sm font-medium text-ink/70">
+            {editorTab === "content"
+              ? "CLAUDE.md 내용을 수정 후 저장을 눌러주세요"
+              : ".claude/settings.json 내용을 수정 후 저장을 눌러주세요 (JSON 형식)"}
           </label>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            spellCheck={false}
-            className="h-[420px] w-full resize-none rounded-lg border border-ink/10 bg-white p-4 font-mono text-sm leading-relaxed text-ink shadow-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
-          />
-          <div className="mt-3 flex items-center gap-3">
+          {editorTab === "content" ? (
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              spellCheck={false}
+              className="h-[420px] w-full resize-none rounded-lg border border-ink/10 bg-white p-4 font-mono text-sm leading-relaxed text-ink shadow-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+            />
+          ) : (
+            <textarea
+              value={hooksContent}
+              onChange={(e) => setHooksContent(e.target.value)}
+              spellCheck={false}
+              className="h-[420px] w-full resize-none rounded-lg border border-ink/10 bg-white p-4 font-mono text-sm leading-relaxed text-ink shadow-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+            />
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
+              className="shrink-0 whitespace-nowrap rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "저장 중..." : "저장"}
             </button>
-            <button
-              onClick={handleDownload}
-              className="rounded-md border border-ink/15 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-orange-light/40"
-            >
-              다운로드
-            </button>
-            <button
-              type="button"
-              onClick={handlePush}
-              disabled={pushing}
-              className="ml-auto rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {pushing ? "PUSH 중..." : pushed ? "PUSH 완료" : "PUSH"}
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePush}
+                disabled={pushing}
+                className="shrink-0 whitespace-nowrap rounded-md bg-orange px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pushing ? "PUSH 중..." : pushed ? "PUSH 완료" : "PUSH"}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -513,7 +626,7 @@ export default function ProjectPage() {
               <br />
               세션 JSONL 파일은 위 링크 폴더안, 이 프로젝트 경로에 해당하는 하위 폴더에 있어요. 그중 가장 최근에 수정된 파일을 선택해주세요.
               <br />
-              MAC은 command shift .을 해야 숨김파일이 보임
+              MAC의 경우 [command+shift+.]을 해야 숨김파일이 보입니다.
             </p>
           </div>
 
@@ -544,11 +657,11 @@ export default function ProjectPage() {
             </div>
 
             {recTab === "my" ? (
-              personalRecs.length === 0 ? (
+              visiblePersonalRecs.length === 0 ? (
                 <p className="text-sm text-ink/40">아직 추천이 없습니다</p>
               ) : (
                 <div className="flex gap-3 overflow-x-auto pb-2">
-                  {personalRecs.map((rec) => {
+                  {visiblePersonalRecs.map((rec) => {
                     const isApplied = rec.applied || pendingAppliedPersonalIds.has(rec.id);
                     return (
                       <div
@@ -574,11 +687,11 @@ export default function ProjectPage() {
                   })}
                 </div>
               )
-            ) : teamRecs.length === 0 ? (
+            ) : visibleTeamRecs.length === 0 ? (
               <p className="text-sm text-ink/40">아직 팀 추천이 없습니다</p>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-2">
-                {teamRecs.map((rec) => {
+                {visibleTeamRecs.map((rec) => {
                   const isApplied = rec.applied || pendingAppliedGroupIds.has(rec.id);
                   return (
                     <div
@@ -606,7 +719,10 @@ export default function ProjectPage() {
             )}
           </div>
 
-          <div className="mt-6 rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
+        </aside>
+
+        <aside className="min-w-0">
+          <div className="rounded-lg border border-ink/10 bg-white p-4 shadow-sm">
             <h2 className="mb-2 text-sm font-medium text-ink/70">변경 이력</h2>
             {revisions.length === 0 ? (
               <p className="text-sm text-ink/40">저장 기록이 없습니다</p>
@@ -617,9 +733,20 @@ export default function ProjectPage() {
                     <button
                       type="button"
                       onClick={() => handleOpenRevision(r.id)}
-                      className="w-full rounded-md px-2 py-1.5 text-left text-sm text-ink/70 transition hover:bg-orange-light/40"
+                      className="flex w-full flex-col items-start gap-1 rounded-md px-2 py-1.5 text-left text-sm text-ink/70 transition hover:bg-orange-light/40"
                     >
-                      {new Date(r.created_at).toLocaleString()} · {r.username}
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+                          r.target === "hooks"
+                            ? "bg-orange-light/60 text-orange-dark"
+                            : "bg-ink/10 text-ink/60"
+                        }`}
+                      >
+                        {r.target === "hooks" ? "Hooks" : "CLAUDE.md"}
+                      </span>
+                      <span>
+                        {new Date(r.created_at).toLocaleString()} · {r.username}
+                      </span>
                     </button>
                   </li>
                 ))}
