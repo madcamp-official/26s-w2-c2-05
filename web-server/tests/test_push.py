@@ -37,6 +37,34 @@ def test_push_sends_both_claude_md_and_hooks(client, db_session, monkeypatch):
     assert calls == ["CLAUDE.md", ".claude/settings.json"]
 
 
+def test_push_sends_files_for_each_skill(client, db_session, monkeypatch):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project_with_repo_and_token(client, db_session, owner_token, owner)
+
+    skill = models.Skill(
+        project_id=project_id,
+        name="run-migrations",
+        description="마이그레이션 실행",
+        steps_content="1. migrate\n2. seed",
+    )
+    db_session.add(skill)
+    db_session.commit()
+
+    calls = []
+    monkeypatch.setattr(
+        github_client, "push_file",
+        lambda token, repo, path, content, message: calls.append(path),
+    )
+
+    resp = client.post(f"/projects/{project_id}/push", headers=auth_headers(owner_token))
+    assert resp.status_code == 200
+    assert calls == [
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".claude/skills/run-migrations/SKILL.md",
+    ]
+
+
 def test_push_with_invalid_hooks_json_returns_400_and_skips_push(
     client, db_session, monkeypatch
 ):
