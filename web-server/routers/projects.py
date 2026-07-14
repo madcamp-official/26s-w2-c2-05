@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ..deps import get_db, get_current_user
 from ..models import Project, ProjectMember, ProjectRevision, User
 from .. import ai_client, github_client
+from .presence import manager
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ class ProjectOut(BaseModel):
     hooks_content: str
     github_repo: str | None
     created_at: datetime
+    updated_at: datetime
     role: str
 
 
@@ -40,6 +42,7 @@ def _to_project_out(project: Project, role: str) -> ProjectOut:
         hooks_content=project.hooks_content,
         github_repo=project.github_repo,
         created_at=_as_utc(project.created_at),
+        updated_at=_as_utc(project.updated_at),
         role=role,
     )
 
@@ -50,10 +53,12 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateContentRequest(BaseModel):
     content: str
+    expected_updated_at: datetime | None = None
 
 
 class UpdateHooksRequest(BaseModel):
     hooks_content: str
+    expected_updated_at: datetime | None = None
 
 
 class RenameProjectRequest(BaseModel):
@@ -116,7 +121,7 @@ def get_project(
 
 
 @router.put("/projects/{project_id}", response_model=ProjectOut)
-def update_project_content(
+async def update_project_content(
     project_id: str,
     req: UpdateContentRequest,
     db: Session = Depends(get_db),
@@ -128,13 +133,20 @@ def update_project_content(
     member = db.get(ProjectMember, (project_id, user.user_id))
     if member is None:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    if (
+        req.expected_updated_at is not None
+        and _as_utc(project.updated_at) != req.expected_updated_at
+    ):
+        raise HTTPException(status_code=409, detail="다른 팀원이 먼저 저장했어요")
     project.content = req.content
+    project.updated_at = datetime.utcnow()
     db.add(project)
     db.add(
         ProjectRevision(project_id=project_id, user_id=user.user_id, content=req.content)
     )
     db.commit()
     db.refresh(project)
+    await manager.broadcast_content_updated(project_id, "content", user.username)
     return _to_project_out(project, member.role)
 
 @router.post("/projects/{project_id}/onboarding", response_model=ProjectOut)
@@ -163,7 +175,7 @@ async def onboard_project(
     return _to_project_out(project, member.role)
 
 @router.put("/projects/{project_id}/hooks", response_model=ProjectOut)
-def update_project_hooks(
+async def update_project_hooks(
     project_id: str,
     req: UpdateHooksRequest,
     db: Session = Depends(get_db),
@@ -175,11 +187,17 @@ def update_project_hooks(
     member = db.get(ProjectMember, (project_id, user.user_id))
     if member is None:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    if (
+        req.expected_updated_at is not None
+        and _as_utc(project.updated_at) != req.expected_updated_at
+    ):
+        raise HTTPException(status_code=409, detail="다른 팀원이 먼저 저장했어요")
     try:
         json.loads(req.hooks_content)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="올바른 JSON 형식이 아니에요")
     project.hooks_content = req.hooks_content
+    project.updated_at = datetime.utcnow()
     db.add(project)
     db.add(
         ProjectRevision(
@@ -191,6 +209,7 @@ def update_project_hooks(
     )
     db.commit()
     db.refresh(project)
+    await manager.broadcast_content_updated(project_id, "hooks", user.username)
     return _to_project_out(project, member.role)
 
 

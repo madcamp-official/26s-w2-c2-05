@@ -17,6 +17,7 @@ import {
   getTeamRecommendations,
   applyRecommendationGroup,
   applyPersonalRecommendationApi,
+  SaveConflictError,
   type Project,
   type Revision,
   type RevisionDetail,
@@ -95,7 +96,13 @@ export default function ProjectPage() {
   const [pendingAppliedPersonalIds, setPendingAppliedPersonalIds] = useState<Set<string>>(new Set());
   const [pendingAppliedGroupIds, setPendingAppliedGroupIds] = useState<Set<string>>(new Set());
   const [recTab, setRecTab] = useState<"my" | "team">("my");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [handTypedConflict, setHandTypedConflict] = useState<
+    { target: "content" | "hooks"; latestContent: string } | null
+  >(null);
+  const [showLatestPreview, setShowLatestPreview] = useState(false);
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const activeRecType = editorTab === "content" ? "claude_md" : "hook";
   const visiblePersonalRecs = personalRecs.filter((rec) => rec.type === activeRecType);
@@ -106,16 +113,40 @@ export default function ProjectPage() {
     if (!token) return;
 
     const ws = new WebSocket(`ws://localhost:8000/ws/projects/${projectId}?token=${token}`);
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setOnlineUsers(data.online_users ?? []);
-    };
+    wsRef.current = ws;
 
     return () => {
       ws.close();
+      wsRef.current = null;
       setOnlineUsers([]);
     };
   }, [projectId]);
+
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.online_users) {
+        setOnlineUsers(data.online_users);
+        return;
+      }
+      if (data.type === "content_updated") {
+        reconcileWithServer(
+          data.target,
+          `${data.updated_by ?? "팀원"}님이 방금 저장한 내용이 반영되었어요`
+        );
+      }
+    };
+  }, [
+    pendingAppliedPersonalIds,
+    pendingAppliedGroupIds,
+    personalRecs,
+    teamRecs,
+    project,
+    content,
+    hooksContent,
+  ]);
 
   useEffect(() => {
     getGithubStatus()
@@ -215,12 +246,100 @@ export default function ProjectPage() {
     setPendingAppliedGroupIds((prev) => new Set(prev).add(rec.id));
   }
 
+  function buildMergedContent(base: string): string {
+    let merged = base;
+    for (const id of pendingAppliedPersonalIds) {
+      const rec = personalRecs.find((r) => r.id === id && r.type === "claude_md");
+      if (rec) {
+        merged = `${merged.trimEnd()}\n${formatClaudeMdCandidate(rec.payload as ClaudeMdPayload)}\n`;
+      }
+    }
+    for (const id of pendingAppliedGroupIds) {
+      const rec = teamRecs.find((r) => r.id === id && r.type === "claude_md");
+      if (rec) {
+        merged = `${merged.trimEnd()}\n- ${rec.representative_text}\n`;
+      }
+    }
+    return merged;
+  }
+
+  function buildMergedHooks(base: string): string {
+    let merged = base;
+    for (const id of pendingAppliedPersonalIds) {
+      const rec = personalRecs.find((r) => r.id === id && r.type === "hook");
+      if (rec) {
+        const hook = rec.payload as HookPayload;
+        try {
+          merged = mergeHookIntoJson(merged, hook.event, hook.matcher, hook.command);
+        } catch {
+          // base가 유효하지 않은 JSON이면 그대로 두고, 저장 시 기존 JSON 검증 에러로 안내됨
+        }
+      }
+    }
+    for (const id of pendingAppliedGroupIds) {
+      const rec = teamRecs.find((r) => r.id === id && r.type === "hook");
+      if (rec && rec.event && rec.matcher) {
+        try {
+          merged = mergeHookIntoJson(merged, rec.event, rec.matcher, rec.representative_text);
+        } catch {
+          // 위와 동일
+        }
+      }
+    }
+    return merged;
+  }
+
+  async function reconcileWithServer(target: "content" | "hooks", message: string) {
+    let latest: Project;
+    try {
+      latest = await getProject(projectId);
+    } catch {
+      setError("최신 내용을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+    listRevisions(projectId).then(setRevisions).catch(() => {});
+
+    if (target === "content") {
+      const expectedFromRecsOnly = buildMergedContent(project?.content ?? "");
+      if (content === expectedFromRecsOnly) {
+        setContent(buildMergedContent(latest.content));
+        setProject(latest);
+        setNotice(message);
+      } else {
+        setHandTypedConflict({ target: "content", latestContent: latest.content });
+      }
+    } else {
+      const expectedFromRecsOnly = buildMergedHooks(project?.hooks_content ?? "");
+      if (hooksContent === expectedFromRecsOnly) {
+        setHooksContent(buildMergedHooks(latest.hooks_content));
+        setProject(latest);
+        setNotice(message);
+      } else {
+        setHandTypedConflict({ target: "hooks", latestContent: latest.hooks_content });
+      }
+    }
+  }
+
   async function handleSave() {
     setError(null);
+    setNotice(null);
     setSaving(true);
     try {
       if (editorTab === "hooks") {
-        const updated = await saveProjectHooks(projectId, hooksContent);
+        let updated: Project;
+        try {
+          updated = await saveProjectHooks(projectId, hooksContent, project?.updated_at);
+        } catch (err) {
+          if (err instanceof SaveConflictError) {
+            await reconcileWithServer(
+              "hooks",
+              "다른 팀원이 먼저 저장했어요. 최신 내용에 회원님의 변경사항을 다시 합쳤어요. 저장을 다시 눌러주세요."
+            );
+          } else {
+            setError((err as Error).message);
+          }
+          return;
+        }
         setProject(updated);
         const latest = await listRevisions(projectId);
         setRevisions(latest);
@@ -257,7 +376,20 @@ export default function ProjectPage() {
         return;
       }
 
-      const updated = await saveProjectContent(projectId, content);
+      let updated: Project;
+      try {
+        updated = await saveProjectContent(projectId, content, project?.updated_at);
+      } catch (err) {
+        if (err instanceof SaveConflictError) {
+          await reconcileWithServer(
+            "content",
+            "다른 팀원이 먼저 저장했어요. 최신 내용에 회원님의 변경사항을 다시 합쳤어요. 저장을 다시 눌러주세요."
+          );
+        } else {
+          setError((err as Error).message);
+        }
+        return;
+      }
       setProject(updated);
       const latest = await listRevisions(projectId);
       setRevisions(latest);
@@ -476,6 +608,35 @@ export default function ProjectPage() {
         <p role="alert" className="mb-4 text-sm text-red-600">
           {error}
         </p>
+      )}
+      {notice && (
+        <p className="mb-4 text-sm text-orange-dark">
+          {notice}
+        </p>
+      )}
+      {handTypedConflict && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-orange/30 bg-orange-light/40 px-3 py-2 text-sm text-ink/80">
+          <span>
+            팀원이 방금 {handTypedConflict.target === "content" ? "CLAUDE.md" : "Hooks"}를
+            저장했지만, 직접 수정한 내용이 있어 자동으로 합치지 못했어요.
+          </span>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => setShowLatestPreview(true)}
+              className="whitespace-nowrap rounded-md border border-ink/15 bg-white px-2.5 py-1 text-xs text-ink transition hover:bg-orange-light/40"
+            >
+              최신 내용 보기
+            </button>
+            <button
+              type="button"
+              onClick={() => setHandTypedConflict(null)}
+              className="whitespace-nowrap rounded-md border border-ink/15 bg-white px-2.5 py-1 text-xs text-ink transition hover:bg-orange-light/40"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
       )}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[4fr_4fr_2fr]">
         <section>
@@ -774,6 +935,33 @@ export default function ProjectPage() {
             <button
               type="button"
               onClick={() => setPreviewRevision(null)}
+              className="mt-3 w-full rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showLatestPreview && handTypedConflict && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setShowLatestPreview(false)}
+        >
+          <div
+            className="max-h-[80vh] w-[32rem] overflow-y-auto rounded-lg bg-white p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 text-sm font-medium text-ink/80">
+              팀원이 저장한 최신{" "}
+              {handTypedConflict.target === "content" ? "CLAUDE.md" : "Hooks"} 내용 (읽기 전용)
+            </h3>
+            <pre className="mt-3 whitespace-pre-wrap rounded-md bg-orange-light/20 p-3 font-mono text-xs leading-relaxed text-ink">
+              {handTypedConflict.latestContent}
+            </pre>
+            <button
+              type="button"
+              onClick={() => setShowLatestPreview(false)}
               className="mt-3 w-full rounded-md border border-ink/15 bg-white px-3 py-1.5 text-sm text-ink transition hover:bg-orange-light/40"
             >
               닫기

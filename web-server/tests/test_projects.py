@@ -64,6 +64,15 @@ def test_created_at_is_timezone_aware_in_response(client, db_session):
     assert created_at.endswith("Z") or "+00:00" in created_at
 
 
+def test_updated_at_is_timezone_aware_in_response(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+
+    resp = client.get(f"/projects/{project_id}", headers=auth_headers(owner_token))
+    updated_at = resp.json()["updated_at"]
+    assert updated_at.endswith("Z") or "+00:00" in updated_at
+
+
 def test_non_owner_cannot_rename_project(client, db_session):
     owner, owner_token = make_user_and_token(db_session, "owner")
     member, member_token = make_user_and_token(db_session, "member")
