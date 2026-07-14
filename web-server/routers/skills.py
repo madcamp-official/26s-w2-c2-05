@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,6 +33,19 @@ def _to_skill_out(skill: Skill) -> SkillOut:
         created_at=_as_utc(skill.created_at),
         updated_at=_as_utc(skill.updated_at),
     )
+
+
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def _validate_skill_fields(name: str, description: str) -> None:
+    if not _SKILL_NAME_RE.match(name):
+        raise HTTPException(
+            status_code=400,
+            detail="스킬 이름은 kebab-case(소문자/숫자/하이픈)만 사용할 수 있어요",
+        )
+    if "\n" in description:
+        raise HTTPException(status_code=400, detail="설명에는 줄바꿈을 사용할 수 없어요")
 
 
 class UpdateSkillRequest(BaseModel):
@@ -78,6 +92,7 @@ def update_skill(
     skill = db.get(Skill, skill_id)
     if skill is None or skill.project_id != project_id:
         raise HTTPException(status_code=404, detail="스킬을 찾을 수 없습니다")
+    _validate_skill_fields(req.name, req.description)
     skill.name = req.name
     skill.description = req.description
     skill.steps_content = req.steps_content

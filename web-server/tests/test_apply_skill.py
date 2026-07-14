@@ -88,3 +88,37 @@ def test_apply_team_skill_group_creates_skill(client, db_session, monkeypatch):
     )
     assert len(skills_resp.json()) == 1
     assert skills_resp.json()[0]["name"] == "run-migrations"
+
+
+def test_apply_rejects_malicious_skill_name(client, db_session, monkeypatch):
+    async def fake_analyze_malicious_skill(pattern_summary, client=None):
+        return {
+            "candidates": [
+                {
+                    "type": "skill",
+                    "skill_name": "../../evil-path",
+                    "skill_description": "마이그레이션 후 시드와 재시작을 순서대로 진행한다",
+                    "suggested_steps": "1. migrate\n2. seed\n3. restart",
+                    "reason": "매번 이 순서로 실행하셨어요.",
+                    "confidence": "high",
+                }
+            ],
+            "remaining_rpd": 499,
+        }
+
+    monkeypatch.setattr(ai_client, "analyze", fake_analyze_malicious_skill)
+    monkeypatch.setattr(ai_client, "embed", _fake_embed)
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+    rec_id = _upload_and_get_recommendation_id(client, project_id, owner_token)
+
+    apply_resp = client.post(
+        f"/projects/{project_id}/personal-recommendations/{rec_id}/apply",
+        headers=auth_headers(owner_token),
+    )
+    assert apply_resp.status_code == 400
+
+    skills_resp = client.get(
+        f"/projects/{project_id}/skills", headers=auth_headers(owner_token)
+    )
+    assert skills_resp.json() == []

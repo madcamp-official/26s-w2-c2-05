@@ -117,3 +117,37 @@ def test_get_nonexistent_skill_returns_404(client, db_session):
         f"/projects/{project_id}/skills/does-not-exist", headers=auth_headers(owner_token)
     )
     assert resp.status_code == 404
+
+
+def test_update_skill_rejects_invalid_name(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+    skill_id = _create_skill_directly(db_session, project_id)
+
+    resp = client.put(
+        f"/projects/{project_id}/skills/{skill_id}",
+        json={
+            "name": "../../evil-path",
+            "description": "설명",
+            "steps_content": "steps",
+        },
+        headers=auth_headers(owner_token),
+    )
+    assert resp.status_code == 400
+
+
+def test_update_skill_rejects_description_with_newline(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+    skill_id = _create_skill_directly(db_session, project_id)
+
+    resp = client.put(
+        f"/projects/{project_id}/skills/{skill_id}",
+        json={
+            "name": "valid-name",
+            "description": "line1\ninjected: value",
+            "steps_content": "steps",
+        },
+        headers=auth_headers(owner_token),
+    )
+    assert resp.status_code == 400

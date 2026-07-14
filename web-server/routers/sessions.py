@@ -8,6 +8,7 @@ from sqlmodel import Session as DBSession, select
 from .. import ai_client
 from ..deps import get_current_user, get_db
 from ..matching import match_claude_md_candidate, match_hook_candidate, match_skill_candidate
+from .skills import _validate_skill_fields
 from ..models import (
     GroupMembership,
     PersonalRecommendation,
@@ -317,6 +318,7 @@ def apply_personal_recommendation(
 
 
 def _create_skill_from_payload(db: DBSession, project_id: str, payload: dict) -> None:
+    _validate_skill_fields(payload["skill_name"], payload["skill_description"])
     db.add(
         Skill(
             project_id=project_id,
