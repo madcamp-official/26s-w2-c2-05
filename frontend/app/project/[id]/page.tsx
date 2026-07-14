@@ -17,6 +17,9 @@ import {
   getTeamRecommendations,
   applyRecommendationGroup,
   applyPersonalRecommendationApi,
+  listSkills,
+  saveSkill,
+  deleteSkill,
   type Project,
   type Revision,
   type RevisionDetail,
@@ -24,6 +27,8 @@ import {
   type TeamRecommendation,
   type HookPayload,
   type ClaudeMdPayload,
+  type Skill,
+  type SkillPayload,
 } from "@/lib/projects";
 import { getGithubStatus } from "@/lib/auth";
 
@@ -71,7 +76,7 @@ export default function ProjectPage() {
   const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
   const [hooksContent, setHooksContent] = useState("");
-  const [editorTab, setEditorTab] = useState<"content" | "hooks">("content");
+  const [editorTab, setEditorTab] = useState<"content" | "hooks" | "skill">("content");
   const [error, setError] = useState<string | null>(null);
   const [repoInput, setRepoInput] = useState("");
   const [pushing, setPushing] = useState(false);
@@ -95,9 +100,15 @@ export default function ProjectPage() {
   const [pendingAppliedPersonalIds, setPendingAppliedPersonalIds] = useState<Set<string>>(new Set());
   const [pendingAppliedGroupIds, setPendingAppliedGroupIds] = useState<Set<string>>(new Set());
   const [recTab, setRecTab] = useState<"my" | "team">("my");
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [skillNameInput, setSkillNameInput] = useState("");
+  const [skillDescriptionInput, setSkillDescriptionInput] = useState("");
+  const [skillStepsInput, setSkillStepsInput] = useState("");
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeRecType = editorTab === "content" ? "claude_md" : "hook";
+  const activeRecType =
+    editorTab === "content" ? "claude_md" : editorTab === "hooks" ? "hook" : "skill";
   const visiblePersonalRecs = personalRecs.filter((rec) => rec.type === activeRecType);
   const visibleTeamRecs = teamRecs.filter((rec) => rec.type === activeRecType);
 
@@ -149,6 +160,12 @@ export default function ProjectPage() {
       .catch((err) => setError((err as Error).message));
   }, [projectId]);
 
+  useEffect(() => {
+    listSkills(projectId)
+      .then(setSkills)
+      .catch((err) => setError((err as Error).message));
+  }, [projectId]);
+
   async function handleUploadSession(file: File) {
     setError(null);
     setUploadMessage(null);
@@ -171,6 +188,65 @@ export default function ProjectPage() {
       setError((err as Error).message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  function selectSkill(skill: Skill) {
+    setSelectedSkillId(skill.id);
+    setSkillNameInput(skill.name);
+    setSkillDescriptionInput(skill.description);
+    setSkillStepsInput(skill.steps_content);
+  }
+
+  async function handleDeleteSkill() {
+    if (!selectedSkillId) return;
+    setError(null);
+    try {
+      await deleteSkill(projectId, selectedSkillId);
+      setSkills((prev) => prev.filter((s) => s.id !== selectedSkillId));
+      setSelectedSkillId(null);
+      setSkillNameInput("");
+      setSkillDescriptionInput("");
+      setSkillStepsInput("");
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleApplySkillPersonal(rec: PersonalRecommendation) {
+    setError(null);
+    try {
+      await applyPersonalRecommendationApi(projectId, rec.id);
+      const [updatedSkills, updatedPersonalRecs] = await Promise.all([
+        listSkills(projectId),
+        getMyRecommendations(projectId),
+      ]);
+      setSkills(updatedSkills);
+      setPersonalRecs(updatedPersonalRecs);
+      const payload = rec.payload as SkillPayload;
+      const created = updatedSkills.find((s) => s.name === payload.skill_name);
+      setEditorTab("skill");
+      if (created) selectSkill(created);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function handleApplySkillTeam(rec: TeamRecommendation) {
+    setError(null);
+    try {
+      await applyRecommendationGroup(projectId, rec.id);
+      const [updatedSkills, updatedTeamRecs] = await Promise.all([
+        listSkills(projectId),
+        getTeamRecommendations(projectId),
+      ]);
+      setSkills(updatedSkills);
+      setTeamRecs(updatedTeamRecs);
+      const created = updatedSkills.find((s) => s.description === rec.representative_text);
+      setEditorTab("skill");
+      if (created) selectSkill(created);
+    } catch (err) {
+      setError((err as Error).message);
     }
   }
 
@@ -219,6 +295,19 @@ export default function ProjectPage() {
     setError(null);
     setSaving(true);
     try {
+      if (editorTab === "skill") {
+        if (!selectedSkillId) return;
+        const updated = await saveSkill(projectId, selectedSkillId, {
+          name: skillNameInput,
+          description: skillDescriptionInput,
+          steps_content: skillStepsInput,
+        });
+        setSkills((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+        const latest = await listRevisions(projectId);
+        setRevisions(latest);
+        return;
+      }
+
       if (editorTab === "hooks") {
         const updated = await saveProjectHooks(projectId, hooksContent);
         setProject(updated);
@@ -552,13 +641,82 @@ export default function ProjectPage() {
             >
               Hooks
             </button>
+            <button
+              type="button"
+              onClick={() => setEditorTab("skill")}
+              className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+                editorTab === "skill"
+                  ? "bg-orange text-white"
+                  : "text-ink/60 hover:bg-orange-light/40"
+              }`}
+            >
+              Skill
+            </button>
           </div>
           <label className="mb-2 block text-sm font-medium text-ink/70">
             {editorTab === "content"
               ? "CLAUDE.md 내용을 수정 후 저장을 눌러주세요"
-              : ".claude/settings.json 내용을 수정 후 저장을 눌러주세요 (JSON 형식)"}
+              : editorTab === "hooks"
+              ? ".claude/settings.json 내용을 수정 후 저장을 눌러주세요 (JSON 형식)"
+              : "왼쪽에서 스킬을 선택해 수정 후 저장을 눌러주세요"}
           </label>
-          {editorTab === "content" ? (
+          {editorTab === "skill" ? (
+            <div className="flex h-[420px] gap-4">
+              <ul className="w-40 flex-shrink-0 overflow-y-auto flex flex-col gap-1">
+                {skills.length === 0 && (
+                  <p className="text-xs text-ink/40">아직 스킬이 없습니다</p>
+                )}
+                {skills.map((skill) => (
+                  <li key={skill.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectSkill(skill)}
+                      className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition ${
+                        selectedSkillId === skill.id
+                          ? "bg-orange text-white"
+                          : "text-ink/70 hover:bg-orange-light/40"
+                      }`}
+                    >
+                      {skill.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {selectedSkillId ? (
+                <div className="flex flex-1 flex-col gap-2">
+                  <input
+                    value={skillNameInput}
+                    onChange={(e) => setSkillNameInput(e.target.value)}
+                    placeholder="스킬 이름 (kebab-case)"
+                    className="rounded-md border border-ink/15 px-3 py-2 text-sm font-mono focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+                  />
+                  <input
+                    value={skillDescriptionInput}
+                    onChange={(e) => setSkillDescriptionInput(e.target.value)}
+                    placeholder="한 줄 설명"
+                    className="rounded-md border border-ink/15 px-3 py-2 text-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+                  />
+                  <textarea
+                    value={skillStepsInput}
+                    onChange={(e) => setSkillStepsInput(e.target.value)}
+                    spellCheck={false}
+                    className="flex-1 w-full resize-none rounded-lg border border-ink/10 bg-white p-4 font-mono text-sm leading-relaxed text-ink shadow-sm focus:border-orange focus:outline-none focus:ring-2 focus:ring-orange/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleDeleteSkill}
+                    className="self-start rounded-md border border-red-200 px-3 py-1.5 text-sm text-red-600 transition hover:bg-red-50"
+                  >
+                    이 스킬 삭제
+                  </button>
+                </div>
+              ) : (
+                <p className="flex-1 text-sm text-ink/40">
+                  왼쪽에서 스킬을 선택하거나, 오른쪽 추천 카드에서 스킬을 적용해보세요.
+                </p>
+              )}
+            </div>
+          ) : editorTab === "content" ? (
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -672,11 +830,17 @@ export default function ProjectPage() {
                         <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
                           {rec.type === "claude_md"
                             ? (rec.payload as ClaudeMdPayload).suggested_text
-                            : `${(rec.payload as HookPayload).event} → ${(rec.payload as HookPayload).command}`}
+                            : rec.type === "hook"
+                            ? `${(rec.payload as HookPayload).event} → ${(rec.payload as HookPayload).command}`
+                            : `${(rec.payload as SkillPayload).skill_name}: ${(rec.payload as SkillPayload).suggested_steps}`}
                         </code>
                         <button
                           type="button"
-                          onClick={() => applyPersonalRecommendation(rec)}
+                          onClick={() =>
+                            rec.type === "skill"
+                              ? handleApplySkillPersonal(rec)
+                              : applyPersonalRecommendation(rec)
+                          }
                           disabled={isApplied}
                           className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
                         >
@@ -706,7 +870,11 @@ export default function ProjectPage() {
                       </code>
                       <button
                         type="button"
-                        onClick={() => applyTeamRecommendation(rec)}
+                        onClick={() =>
+                          rec.type === "skill"
+                            ? handleApplySkillTeam(rec)
+                            : applyTeamRecommendation(rec)
+                        }
                         disabled={isApplied}
                         className="mt-3 w-full rounded-md bg-orange px-3 py-1.5 text-sm font-medium text-white transition hover:bg-orange-dark disabled:cursor-not-allowed disabled:bg-ink/20"
                       >
@@ -739,10 +907,12 @@ export default function ProjectPage() {
                         className={`rounded px-1.5 py-0.5 text-xs font-medium ${
                           r.target === "hooks"
                             ? "bg-orange-light/60 text-orange-dark"
+                            : r.target === "skill"
+                            ? "bg-blue-100 text-blue-700"
                             : "bg-ink/10 text-ink/60"
                         }`}
                       >
-                        {r.target === "hooks" ? "Hooks" : "CLAUDE.md"}
+                        {r.target === "hooks" ? "Hooks" : r.target === "skill" ? "Skill" : "CLAUDE.md"}
                       </span>
                       <span>
                         {new Date(r.created_at).toLocaleString()} · {r.username}

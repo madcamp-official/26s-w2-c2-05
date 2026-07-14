@@ -145,7 +145,7 @@ export type Revision = {
   id: string;
   created_at: string;
   username: string;
-  target: "content" | "hooks";
+  target: "content" | "hooks" | "skill";
 };
 
 export type RevisionDetail = Revision & {
