@@ -15,7 +15,16 @@ class ConnectionManager:
 
     async def connect(self, project_id: str, user: User, websocket: WebSocket) -> None:
         await websocket.accept()
-        self._connections.setdefault(project_id, []).append((user, websocket))
+        # 재연결 시 교체(replace-on-reconnect): 클라이언트의 이전 ws.close()는
+        # 비동기라 서버가 연결 종료를 인지하기 전에 같은 유저의 새 연결이 먼저
+        # 등록될 수 있다(React StrictMode 이중 마운트 등). 옛 연결의 disconnect를
+        # 기다리지 않고 같은 user_id를 여기서 바로 정리해 "한 유저 = 한 연결"을
+        # 서버가 직접 보장한다.
+        conns = self._connections.setdefault(project_id, [])
+        self._connections[project_id] = [
+            (u, ws) for u, ws in conns if u.user_id != user.user_id
+        ]
+        self._connections[project_id].append((user, websocket))
         await self._broadcast(project_id)
 
     async def disconnect(self, project_id: str, websocket: WebSocket) -> None:
