@@ -52,7 +52,9 @@ def make_client_error(status_code: int) -> errors.ClientError:
     return errors.ClientError(status_code, resp)
 
 
-EMPTY_GEMINI_RESPONSE = GeminiAnalyzeSchema(hook_candidates=[], claude_md_candidates=[])
+EMPTY_GEMINI_RESPONSE = GeminiAnalyzeSchema(
+    hook_candidates=[], claude_md_candidates=[], skill_candidates=[]
+)
 EMPTY_ANALYZE_RESPONSE = AnalyzeResponse(candidates=[])
 
 
@@ -131,6 +133,7 @@ async def test_injects_type_field_when_converting_gemini_response():
                 confidence="medium",
             )
         ],
+        skill_candidates=[],
     )
     client = FakeClient(FakeModels([gemini_response]))
 
