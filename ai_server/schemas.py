@@ -131,3 +131,7 @@ class OnboardingRequest(BaseModel):
 
 class OnboardingResponse(BaseModel):
     base_claude_md: str
+
+
+class RemainingRpdResponse(BaseModel):
+    remaining_rpd: int
