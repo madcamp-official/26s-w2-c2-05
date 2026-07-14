@@ -131,3 +131,42 @@ def test_claude_md_groups_by_similarity_not_exact_text(client, db_session):
         "탭 대신 스페이스 써주세요", similar_vector, "r2", "medium",
     )
     assert group.promoted is True
+
+
+def test_skill_groups_by_similarity_not_exact_text(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    member, member_token = make_user_and_token(db_session, "member")
+    project_id = _create_project(client, owner_token)
+    client.post(
+        f"/projects/{project_id}/invite",
+        json={"username": member.username},
+        headers=auth_headers(owner_token),
+    )
+    session1 = _make_session(db_session, project_id, owner.user_id)
+    session2 = _make_session(db_session, project_id, member.user_id)
+
+    vector = [1.0, 0.0, 0.0]
+    similar_vector = [0.99, 0.01, 0.0]
+
+    matching.match_skill_candidate(
+        db_session, project_id, owner.user_id, session1,
+        "마이그레이션 후 시드와 재시작을 순서대로 진행한다", vector, "r1", "high",
+    )
+    group = matching.match_skill_candidate(
+        db_session, project_id, member.user_id, session2,
+        "DB 마이그레이션하고 시드 넣은 다음 서버를 재시작한다", similar_vector, "r2", "medium",
+    )
+    assert group.promoted is True
+    assert group.type == "skill"
+
+
+def test_skill_group_not_promoted_with_one_member(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+    session_id = _make_session(db_session, project_id, owner.user_id)
+
+    group = matching.match_skill_candidate(
+        db_session, project_id, owner.user_id, session_id,
+        "마이그레이션 후 시드와 재시작을 순서대로 진행한다", [1.0, 0.0], "r1", "high",
+    )
+    assert group.promoted is False

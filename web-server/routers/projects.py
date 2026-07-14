@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from ..deps import get_db, get_current_user
-from ..models import Project, ProjectMember, ProjectRevision, User
+from ..models import Project, ProjectMember, ProjectRevision, Skill, User
 from .. import ai_client, github_client
 from .presence import manager
 
@@ -409,6 +409,19 @@ def push_to_github(
             content=project.hooks_content,
             message=f"Update .claude/settings.json via {project.name}",
         )
+        skills = db.exec(select(Skill).where(Skill.project_id == project_id)).all()
+        for skill in skills:
+            skill_md = (
+                f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n"
+                f"{skill.steps_content}"
+            )
+            github_client.push_file(
+                token=token,
+                repo=project.github_repo,
+                path=f".claude/skills/{skill.name}/SKILL.md",
+                content=skill_md,
+                message=f"Update skill {skill.name} via {project.name}",
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}

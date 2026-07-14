@@ -18,7 +18,16 @@ class ClaudeMdCandidate(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
-Candidate = Union[HookCandidate, ClaudeMdCandidate]
+class SkillRecommendation(BaseModel):
+    type: Literal["skill"]
+    skill_name: str
+    skill_description: str
+    suggested_steps: str
+    reason: str
+    confidence: Literal["low", "medium", "high"]
+
+
+Candidate = Union[HookCandidate, ClaudeMdCandidate, SkillRecommendation]
 
 
 class AnalyzeRequest(BaseModel):
@@ -59,6 +68,17 @@ class GeminiClaudeMdCandidate(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+class GeminiSkillCandidate(BaseModel):
+    """GeminiHookCandidate/GeminiClaudeMdCandidate와 동일한 이유로 type 없음
+    (skill_candidates 리스트 소속 자체가 타입을 나타냄)."""
+
+    skill_name: str
+    skill_description: str
+    suggested_steps: str
+    reason: str
+    confidence: Literal["low", "medium", "high"]
+
+
 class GeminiAnalyzeSchema(BaseModel):
     """Gemini `generate_content`의 `response_schema`로 직접 전달되는 스키마.
 
@@ -78,6 +98,7 @@ class GeminiAnalyzeSchema(BaseModel):
 
     hook_candidates: list[GeminiHookCandidate]
     claude_md_candidates: list[GeminiClaudeMdCandidate]
+    skill_candidates: list[GeminiSkillCandidate]
 
 
 class AnalyzeEndpointResponse(BaseModel):

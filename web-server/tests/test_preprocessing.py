@@ -95,3 +95,43 @@ def test_ignores_patterns_under_threshold():
 def test_ignores_malformed_lines():
     summary = extract_pattern_summary("not valid json\n{}\n")
     assert summary is None
+
+
+def test_extracts_sequence_with_gap_between_steps():
+    commands = ["migrate", "other", "seed", "migrate", "seed"]
+    events = [_assistant_bash_event(c) for c in commands]
+    summary = extract_pattern_summary("\n".join(_line(e) for e in events))
+    assert summary is not None
+    assert '"migrate" → "seed" 순서로 2번 반복 실행함' in summary
+
+
+def test_sequence_below_threshold_not_extracted():
+    events = [_assistant_bash_event(c) for c in ["migrate", "seed"]]
+    summary = extract_pattern_summary("\n".join(_line(e) for e in events))
+    assert summary is None
+
+
+def test_sequence_extends_to_three_steps_and_drops_shorter_chain():
+    events = []
+    for _ in range(2):
+        events.append(_assistant_bash_event("migrate"))
+        events.append(_assistant_bash_event("seed"))
+        events.append(_assistant_bash_event("restart"))
+    summary = extract_pattern_summary("\n".join(_line(e) for e in events))
+    assert summary is not None
+    assert '"migrate" → "seed" → "restart" 순서로 2번 반복 실행함' in summary
+    assert '"migrate" → "seed" 순서로' not in summary
+
+
+def test_sequence_capped_at_four_steps():
+    commands_cycle = ["a", "b", "c", "d", "e"]
+    events = []
+    for _ in range(2):
+        for cmd in commands_cycle:
+            events.append(_assistant_bash_event(cmd))
+    summary = extract_pattern_summary("\n".join(_line(e) for e in events))
+    assert summary is not None
+    sequence_lines = [line for line in summary.splitlines() if "순서로" in line]
+    assert sequence_lines
+    for line in sequence_lines:
+        assert line.count("→") <= 3

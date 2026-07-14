@@ -85,3 +85,57 @@ def test_onboarding_response_holds_markdown_text():
     dumped = resp.model_dump_json()
     restored = OnboardingResponse.model_validate_json(dumped)
     assert restored.base_claude_md.startswith("# CLAUDE.md")
+
+
+def test_skill_recommendation_round_trips():
+    from ai_server.schemas import SkillRecommendation
+
+    rec = SkillRecommendation(
+        type="skill",
+        skill_name="run-migrations",
+        skill_description="마이그레이션 후 시드와 재시작을 순서대로 진행한다",
+        suggested_steps="1. migrate 실행\n2. seed 실행\n3. 서버 재시작",
+        reason="매번 이 순서로 실행하셨어요.",
+        confidence="high",
+    )
+    dumped = rec.model_dump_json()
+    restored = SkillRecommendation.model_validate_json(dumped)
+    assert restored.skill_name == "run-migrations"
+    assert restored.type == "skill"
+
+
+def test_analyze_response_holds_skill_candidate():
+    from ai_server.schemas import AnalyzeResponse, SkillRecommendation
+
+    resp = AnalyzeResponse(
+        candidates=[
+            SkillRecommendation(
+                type="skill",
+                skill_name="run-migrations",
+                skill_description="설명",
+                suggested_steps="단계",
+                reason="이유",
+                confidence="medium",
+            )
+        ]
+    )
+    assert resp.candidates[0].type == "skill"
+
+
+def test_gemini_analyze_schema_accepts_skill_candidates():
+    from ai_server.schemas import GeminiAnalyzeSchema, GeminiSkillCandidate
+
+    schema = GeminiAnalyzeSchema(
+        hook_candidates=[],
+        claude_md_candidates=[],
+        skill_candidates=[
+            GeminiSkillCandidate(
+                skill_name="run-migrations",
+                skill_description="설명",
+                suggested_steps="단계",
+                reason="이유",
+                confidence="high",
+            )
+        ],
+    )
+    assert schema.skill_candidates[0].skill_name == "run-migrations"

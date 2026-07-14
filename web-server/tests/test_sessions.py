@@ -255,3 +255,49 @@ def test_get_my_recommendations_only_shows_own(client, db_session, monkeypatch):
         f"/projects/{project_id}/recommendations/me", headers=auth_headers(member_token)
     )
     assert member_resp.json() == []
+
+
+def test_skill_candidate_matches_and_promotes(client, db_session, monkeypatch):
+    async def fake_analyze_skill(pattern_summary, client=None):
+        return {
+            "candidates": [
+                {
+                    "type": "skill",
+                    "skill_name": "run-migrations",
+                    "skill_description": "마이그레이션 후 시드와 재시작을 순서대로 진행한다",
+                    "suggested_steps": "1. migrate\n2. seed\n3. restart",
+                    "reason": "매번 이 순서로 실행하셨어요.",
+                    "confidence": "high",
+                }
+            ],
+            "remaining_rpd": 499,
+        }
+
+    async def fake_embed(text, client=None):
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(ai_client, "analyze", fake_analyze_skill)
+    monkeypatch.setattr(ai_client, "embed", fake_embed)
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    member, member_token = make_user_and_token(db_session, "member")
+    project_id = _create_project(client, owner_token)
+    client.post(
+        f"/projects/{project_id}/invite",
+        json={"username": member.username},
+        headers=auth_headers(owner_token),
+    )
+    file_content = _jsonl_with_repeated_bash("npm test", 5)
+
+    client.post(
+        f"/projects/{project_id}/sessions",
+        files={"file": ("s1.jsonl", io.BytesIO(file_content), "application/jsonl")},
+        headers=auth_headers(owner_token),
+    )
+    second_resp = client.post(
+        f"/projects/{project_id}/sessions",
+        files={"file": ("s2.jsonl", io.BytesIO(file_content), "application/jsonl")},
+        headers=auth_headers(member_token),
+    )
+    groups = second_resp.json()["updated_team_groups"]
+    assert groups[0]["type"] == "skill"
+    assert groups[0]["promoted"] is True

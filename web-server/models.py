@@ -47,7 +47,8 @@ class ProjectRevision(SQLModel, table=True):
     project_id: str = Field(foreign_key="projects.id")
     user_id: int = Field(foreign_key="users.user_id")
     content: str
-    target: str = Field(default="content")  # 'content' | 'hooks'
+    target: str = Field(default="content")  # 'content' | 'hooks' | 'skill'
+    skill_id: Optional[str] = Field(default=None, foreign_key="skills.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Session(SQLModel, table=True):
@@ -91,3 +92,13 @@ class GroupMembership(SQLModel, table=True):
     original_text: str
     reason: str
     confidence: str
+
+class Skill(SQLModel, table=True):
+    __tablename__ = "skills"
+    id: str = Field(default_factory=new_id, primary_key=True)
+    project_id: str = Field(foreign_key="projects.id")
+    name: str
+    description: str
+    steps_content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
