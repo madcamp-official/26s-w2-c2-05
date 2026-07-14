@@ -49,3 +49,15 @@ async def generate_base_claude_md(
     finally:
         if owns_client:
             await client.aclose()
+
+
+async def get_remaining_rpd(client: httpx.AsyncClient | None = None) -> int:
+    owns_client = client is None
+    client = client or httpx.AsyncClient(base_url=AI_SERVER_URL, timeout=20.0)
+    try:
+        resp = await client.get("/remaining-rpd")
+        resp.raise_for_status()
+        return resp.json()["remaining_rpd"]
+    finally:
+        if owns_client:
+            await client.aclose()

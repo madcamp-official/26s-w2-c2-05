@@ -13,6 +13,7 @@ from .schemas import (
     EmbedResponse,
     OnboardingRequest,
     OnboardingResponse,
+    RemainingRpdResponse,
 )
 from .gemini_client import call_gemini_analyze, GeminiCallFailed, GeminiQuotaExceeded
 from .embed_client import call_gemini_embed
@@ -79,3 +80,10 @@ async def generate_base_claude_md(
         raise HTTPException(status_code=429, detail=RPD_EXHAUSTED_DETAIL)
     except GeminiCallFailed:
         raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
+
+
+@app.get("/remaining-rpd", response_model=RemainingRpdResponse)
+def get_remaining_rpd() -> RemainingRpdResponse:
+    # 소모(consume) 없이 현재 남은 일일 한도만 조회 — 프론트에 서비스 전체
+    # 남은 요청 수를 보여주기 위한 읽기 전용 엔드포인트.
+    return RemainingRpdResponse(remaining_rpd=gemini_analyze_rpd_counter.remaining())
