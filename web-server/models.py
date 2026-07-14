@@ -61,6 +61,8 @@ class PersonalRecommendation(SQLModel, table=True):
     user_id: int = Field(foreign_key="users.user_id")
     type: str  # 'hook' | 'claude_md'
     payload: str  # JSON-encoded candidate
+    applied: bool = Field(default=False)
+    group_id: Optional[str] = Field(default=None, foreign_key="recommendation_groups.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class RecommendationGroup(SQLModel, table=True):
@@ -73,6 +75,7 @@ class RecommendationGroup(SQLModel, table=True):
     matcher: Optional[str] = None  # hook 타입만 사용
     representative_vector: Optional[str] = None  # JSON 배열, claude_md만
     promoted: bool = Field(default=False)
+    applied: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

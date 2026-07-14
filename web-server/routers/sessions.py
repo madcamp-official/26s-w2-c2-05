@@ -25,8 +25,10 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
 
 
 class RecommendationOut(BaseModel):
+    id: str
     type: str
     payload: dict
+    applied: bool
 
 
 class TeamGroupOut(BaseModel):
@@ -95,17 +97,7 @@ async def upload_session(
     personal_out: list[RecommendationOut] = []
     updated_groups: list[RecommendationGroup] = []
     for candidate in result["candidates"]:
-        db.add(
-            PersonalRecommendation(
-                session_id=session.id,
-                user_id=user.user_id,
-                type=candidate["type"],
-                payload=json.dumps(candidate, ensure_ascii=False),
-            )
-        )
-        db.commit()
-        personal_out.append(RecommendationOut(type=candidate["type"], payload=candidate))
-
+        group: RecommendationGroup | None = None
         if candidate["type"] == "hook":
             group = match_hook_candidate(
                 db, project_id, user.user_id, session.id,
@@ -121,6 +113,20 @@ async def upload_session(
                 candidate["reason"], candidate["confidence"],
             )
             updated_groups.append(group)
+
+        rec = PersonalRecommendation(
+            session_id=session.id,
+            user_id=user.user_id,
+            type=candidate["type"],
+            payload=json.dumps(candidate, ensure_ascii=False),
+            group_id=group.id if group is not None else None,
+        )
+        db.add(rec)
+        db.commit()
+        db.refresh(rec)
+        personal_out.append(
+            RecommendationOut(id=rec.id, type=candidate["type"], payload=candidate, applied=False)
+        )
 
     team_groups_out = [
         TeamGroupOut(
@@ -159,6 +165,7 @@ class TeamRecommendationOut(BaseModel):
     type: str
     representative_text: str
     affected_members: int
+    applied: bool
     evidence: list[EvidenceOut]
 
 
@@ -189,6 +196,7 @@ def get_team_recommendations(
                 type=group.type,
                 representative_text=group.representative_text,
                 affected_members=len(memberships),
+                applied=group.applied,
                 evidence=[
                     EvidenceOut(user_id=m.user_id, original_text=m.original_text)
                     for m in memberships
@@ -196,6 +204,24 @@ def get_team_recommendations(
             )
         )
     return out
+
+
+@router.post("/projects/{project_id}/recommendation-groups/{group_id}/apply")
+def apply_recommendation_group(
+    project_id: str,
+    group_id: str,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    group = db.get(RecommendationGroup, group_id)
+    if group is None or group.project_id != project_id:
+        raise HTTPException(status_code=404, detail="추천 그룹을 찾을 수 없습니다")
+    group.applied = True
+    db.add(group)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get(
@@ -214,9 +240,57 @@ def get_my_recommendations(
             ),
         )
     ).all()
+
+    group_ids = {r.group_id for r in recs if r.group_id is not None}
+    applied_group_ids = set()
+    if group_ids:
+        applied_group_ids = set(
+            db.exec(
+                select(RecommendationGroup.id).where(
+                    RecommendationGroup.id.in_(group_ids),
+                    RecommendationGroup.applied == True,  # noqa: E712
+                )
+            ).all()
+        )
+
     return [
-        RecommendationOut(type=r.type, payload=json.loads(r.payload)) for r in recs
+        RecommendationOut(
+            id=r.id,
+            type=r.type,
+            payload=json.loads(r.payload),
+            applied=r.applied or r.group_id in applied_group_ids,
+        )
+        for r in recs
     ]
+
+
+@router.post("/projects/{project_id}/personal-recommendations/{recommendation_id}/apply")
+def apply_personal_recommendation(
+    project_id: str,
+    recommendation_id: str,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if db.get(ProjectMember, (project_id, user.user_id)) is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    rec = db.get(PersonalRecommendation, recommendation_id)
+    if rec is None or rec.user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다")
+    session = db.get(SessionModel, rec.session_id)
+    if session is None or session.project_id != project_id:
+        raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다")
+    rec.applied = True
+    db.add(rec)
+
+    # 이 추천이 매칭된 팀 그룹도 함께 반영됨으로 표시 (Team ↔ My 연결)
+    if rec.group_id is not None:
+        group = db.get(RecommendationGroup, rec.group_id)
+        if group is not None:
+            group.applied = True
+            db.add(group)
+
+    db.commit()
+    return {"ok": True}
 
 
 def _replace_prior_session(db: DBSession, project_id: str, user_id: int) -> None:

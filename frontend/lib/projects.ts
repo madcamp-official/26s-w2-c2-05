@@ -147,8 +147,10 @@ export type ClaudeMdPayload = {
 };
 
 export type PersonalRecommendation = {
+  id: string;
   type: "hook" | "claude_md";
   payload: HookPayload | ClaudeMdPayload;
+  applied: boolean;
 };
 
 export type TeamGroupUpdate = {
@@ -194,6 +196,7 @@ export type TeamRecommendation = {
   type: "hook" | "claude_md";
   representative_text: string;
   affected_members: number;
+  applied: boolean;
   evidence: { user_id: number; original_text: string }[];
 };
 
@@ -203,4 +206,29 @@ export async function getTeamRecommendations(id: string): Promise<TeamRecommenda
   });
   if (!res.ok) throw new Error("팀 추천을 불러오지 못했습니다");
   return res.json();
+}
+
+export async function applyRecommendationGroup(id: string, groupId: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/projects/${id}/recommendation-groups/${groupId}/apply`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "추천 적용에 실패했습니다");
+  }
+}
+
+export async function applyPersonalRecommendationApi(
+  id: string,
+  recommendationId: string
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/projects/${id}/personal-recommendations/${recommendationId}/apply`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "추천 적용에 실패했습니다");
+  }
 }
