@@ -12,8 +12,11 @@ export type Project = {
   hooks_content: string;
   github_repo: string | null;
   created_at: string;
+  updated_at: string;
   role: "owner" | "member";
 };
+
+export class SaveConflictError extends Error {}
 
 export async function listProjects(): Promise<Project[]> {
   const res = await fetch(`${API_BASE}/projects`, { headers: authHeaders() });
@@ -71,22 +74,35 @@ export async function onboardProject(id: string, req: OnboardingRequest): Promis
   return res.json();
 }
 
-export async function saveProjectContent(id: string, content: string): Promise<Project> {
+export async function saveProjectContent(
+  id: string,
+  content: string,
+  expectedUpdatedAt?: string
+): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, expected_updated_at: expectedUpdatedAt ?? null }),
   });
+  if (res.status === 409) throw new SaveConflictError("다른 팀원이 먼저 저장했어요");
   if (!res.ok) throw new Error("저장에 실패했습니다");
   return res.json();
 }
 
-export async function saveProjectHooks(id: string, hooksContent: string): Promise<Project> {
+export async function saveProjectHooks(
+  id: string,
+  hooksContent: string,
+  expectedUpdatedAt?: string
+): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${id}/hooks`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ hooks_content: hooksContent }),
+    body: JSON.stringify({
+      hooks_content: hooksContent,
+      expected_updated_at: expectedUpdatedAt ?? null,
+    }),
   });
+  if (res.status === 409) throw new SaveConflictError("다른 팀원이 먼저 저장했어요");
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? "저장에 실패했습니다");

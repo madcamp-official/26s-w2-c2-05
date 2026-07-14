@@ -27,6 +27,7 @@ class Project(SQLModel, table=True):
     hooks_content: str = Field(default=DEFAULT_HOOKS)
     github_repo: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ProjectMember(SQLModel, table=True):
     __tablename__ = "project_members"
