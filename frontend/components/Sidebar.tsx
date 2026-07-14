@@ -5,12 +5,16 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listProjects, deleteProject, type Project } from "@/lib/projects";
 import { connectGithub, disconnectGithub, getGithubStatus } from "@/lib/auth";
+import { getQuota } from "@/lib/quota";
+
+const QUOTA_POLL_INTERVAL_MS = 10_000;
 
 export default function Sidebar() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [username, setUsername] = useState("");
   const [githubConnected, setGithubConnected] = useState(false);
   const [githubUsername, setGithubUsername] = useState<string | null>(null);
+  const [remainingRpd, setRemainingRpd] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pathname = usePathname();
 
@@ -29,6 +33,17 @@ export default function Sidebar() {
       })
       .catch(() => setGithubConnected(false));
   }, [pathname]);
+
+  useEffect(() => {
+    function pollQuota() {
+      getQuota()
+        .then((q) => setRemainingRpd(q.remaining_rpd))
+        .catch(() => {});
+    }
+    pollQuota();
+    const id = setInterval(pollQuota, QUOTA_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   if (pathname === "/login" || pathname === "/signup" || pathname === "/fund") return null;
 
@@ -109,6 +124,11 @@ export default function Sidebar() {
           </button>
         )}
       </div>
+      {remainingRpd !== null && (
+        <p className="mb-4 text-xs text-ink/50">
+          오늘 남은 AI 요청: {remainingRpd} / 500
+        </p>
+      )}
       {error && (
         <p role="alert" className="mb-2 text-xs text-red-600">
           {error}

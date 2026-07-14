@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
-from .routers import projects, auth, github_auth, presence, sessions, skills
+from .routers import projects, auth, github_auth, presence, sessions, skills, quota
 
 app = FastAPI()
 app.add_middleware(
@@ -22,6 +22,7 @@ app.include_router(github_auth.router)
 app.include_router(presence.router)
 app.include_router(sessions.router)
 app.include_router(skills.router)
+app.include_router(quota.router)
 
 
 @app.on_event("startup")
