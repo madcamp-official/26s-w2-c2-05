@@ -103,12 +103,15 @@ export default function ProjectPage() {
   const [recTab, setRecTab] = useState<"my" | "team">("my");
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [selectedSkillBase, setSelectedSkillBase] = useState<Skill | null>(null);
   const [skillNameInput, setSkillNameInput] = useState("");
   const [skillDescriptionInput, setSkillDescriptionInput] = useState("");
   const [skillStepsInput, setSkillStepsInput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [handTypedConflict, setHandTypedConflict] = useState<
-    { target: "content" | "hooks"; latestContent: string } | null
+    | { target: "content" | "hooks"; latestContent: string }
+    | { target: "skill"; skillId: string; latest: Skill }
+    | null
   >(null);
   const [showLatestPreview, setShowLatestPreview] = useState(false);
   const sessionFileInputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +161,15 @@ export default function ProjectPage() {
           `${data.updated_by ?? "팀원"}님이 방금 저장한 내용이 반영되었어요`
         );
       }
+      if (data.type === "skill_changed") {
+        const actionLabel =
+          data.action === "deleted" ? "삭제" : data.action === "created" ? "추가" : "저장";
+        reconcileSkillEvent(
+          data.skill_id,
+          data.action,
+          `${data.updated_by ?? "팀원"}님이 스킬을 ${actionLabel}했어요`
+        );
+      }
     };
   }, [
     pendingAppliedPersonalIds,
@@ -167,6 +179,11 @@ export default function ProjectPage() {
     project,
     content,
     hooksContent,
+    selectedSkillId,
+    selectedSkillBase,
+    skillNameInput,
+    skillDescriptionInput,
+    skillStepsInput,
   ]);
 
   useEffect(() => {
@@ -234,9 +251,18 @@ export default function ProjectPage() {
 
   function selectSkill(skill: Skill) {
     setSelectedSkillId(skill.id);
+    setSelectedSkillBase(skill);
     setSkillNameInput(skill.name);
     setSkillDescriptionInput(skill.description);
     setSkillStepsInput(skill.steps_content);
+  }
+
+  function clearSelectedSkill() {
+    setSelectedSkillId(null);
+    setSelectedSkillBase(null);
+    setSkillNameInput("");
+    setSkillDescriptionInput("");
+    setSkillStepsInput("");
   }
 
   async function handleDeleteSkill() {
@@ -245,10 +271,7 @@ export default function ProjectPage() {
     try {
       await deleteSkill(projectId, selectedSkillId);
       setSkills((prev) => prev.filter((s) => s.id !== selectedSkillId));
-      setSelectedSkillId(null);
-      setSkillNameInput("");
-      setSkillDescriptionInput("");
-      setSkillStepsInput("");
+      clearSelectedSkill();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -406,6 +429,48 @@ export default function ProjectPage() {
     }
   }
 
+  async function reconcileSkillEvent(
+    skillId: string,
+    action: "created" | "updated" | "deleted",
+    message: string
+  ) {
+    let latestSkills: Skill[];
+    try {
+      latestSkills = await listSkills(projectId);
+    } catch {
+      setError("최신 스킬 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+    setSkills(latestSkills);
+
+    if (selectedSkillId !== skillId) return;
+
+    if (action === "deleted") {
+      clearSelectedSkill();
+      setNotice(`${message} (삭제됨)`);
+      return;
+    }
+
+    const latest = latestSkills.find((s) => s.id === skillId);
+    if (!latest) return;
+
+    const untouched =
+      selectedSkillBase !== null &&
+      skillNameInput === selectedSkillBase.name &&
+      skillDescriptionInput === selectedSkillBase.description &&
+      skillStepsInput === selectedSkillBase.steps_content;
+
+    if (untouched) {
+      setSkillNameInput(latest.name);
+      setSkillDescriptionInput(latest.description);
+      setSkillStepsInput(latest.steps_content);
+      setSelectedSkillBase(latest);
+      setNotice(message);
+    } else {
+      setHandTypedConflict({ target: "skill", skillId, latest });
+    }
+  }
+
   async function handleSave() {
     setError(null);
     setNotice(null);
@@ -413,12 +478,32 @@ export default function ProjectPage() {
     try {
       if (editorTab === "skill") {
         if (!selectedSkillId) return;
-        const updated = await saveSkill(projectId, selectedSkillId, {
-          name: skillNameInput,
-          description: skillDescriptionInput,
-          steps_content: skillStepsInput,
-        });
+        let updated: Skill;
+        try {
+          updated = await saveSkill(
+            projectId,
+            selectedSkillId,
+            {
+              name: skillNameInput,
+              description: skillDescriptionInput,
+              steps_content: skillStepsInput,
+            },
+            selectedSkillBase?.updated_at
+          );
+        } catch (err) {
+          if (err instanceof SaveConflictError) {
+            await reconcileSkillEvent(
+              selectedSkillId,
+              "updated",
+              "다른 팀원이 먼저 이 스킬을 저장했어요. 최신 내용을 다시 불러왔어요. 확인 후 다시 저장해주세요."
+            );
+          } else {
+            setError((err as Error).message);
+          }
+          return;
+        }
         setSkills((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+        setSelectedSkillBase(updated);
         const latest = await listRevisions(projectId);
         setRevisions(latest);
         return;
@@ -716,8 +801,14 @@ export default function ProjectPage() {
       {handTypedConflict && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-orange/30 bg-orange-light/40 px-3 py-2 text-sm text-ink/80">
           <span>
-            팀원이 방금 {handTypedConflict.target === "content" ? "CLAUDE.md" : "Hooks"}를
-            저장했지만, 직접 수정한 내용이 있어 자동으로 합치지 못했어요.
+            팀원이 방금{" "}
+            {handTypedConflict.target === "content"
+              ? "CLAUDE.md"
+              : handTypedConflict.target === "hooks"
+              ? "Hooks"
+              : "이 스킬"}
+            을(를) {handTypedConflict.target === "skill" ? "변경" : "저장"}했지만, 직접 수정한
+            내용이 있어 자동으로 합치지 못했어요.
           </span>
           <div className="flex shrink-0 gap-2">
             <button
@@ -1134,10 +1225,17 @@ export default function ProjectPage() {
           >
             <h3 className="mb-1 text-sm font-medium text-ink/80">
               팀원이 저장한 최신{" "}
-              {handTypedConflict.target === "content" ? "CLAUDE.md" : "Hooks"} 내용 (읽기 전용)
+              {handTypedConflict.target === "content"
+                ? "CLAUDE.md"
+                : handTypedConflict.target === "hooks"
+                ? "Hooks"
+                : "Skill"}{" "}
+              내용 (읽기 전용)
             </h3>
             <pre className="mt-3 whitespace-pre-wrap rounded-md bg-orange-light/20 p-3 font-mono text-xs leading-relaxed text-ink">
-              {handTypedConflict.latestContent}
+              {handTypedConflict.target === "skill"
+                ? `이름: ${handTypedConflict.latest.name}\n설명: ${handTypedConflict.latest.description}\n\n${handTypedConflict.latest.steps_content}`
+                : handTypedConflict.latestContent}
             </pre>
             <button
               type="button"

@@ -8,6 +8,7 @@ from sqlmodel import Session as DBSession, select
 from .. import ai_client
 from ..deps import get_current_user, get_db
 from ..matching import match_claude_md_candidate, match_hook_candidate, match_skill_candidate
+from .presence import manager
 from .skills import _validate_skill_fields
 from ..models import (
     GroupMembership,
@@ -221,7 +222,7 @@ def get_team_recommendations(
 
 
 @router.post("/projects/{project_id}/recommendation-groups/{group_id}/apply")
-def apply_recommendation_group(
+async def apply_recommendation_group(
     project_id: str,
     group_id: str,
     db: DBSession = Depends(get_db),
@@ -234,6 +235,7 @@ def apply_recommendation_group(
         raise HTTPException(status_code=404, detail="추천 그룹을 찾을 수 없습니다")
     group.applied = True
     db.add(group)
+    created_skill = None
     if group.type == "skill":
         representative_rec = db.exec(
             select(PersonalRecommendation)
@@ -241,8 +243,14 @@ def apply_recommendation_group(
             .order_by(PersonalRecommendation.created_at)
         ).first()
         if representative_rec is not None:
-            _create_skill_from_payload(db, project_id, json.loads(representative_rec.payload))
+            created_skill = _create_skill_from_payload(
+                db, project_id, json.loads(representative_rec.payload)
+            )
     db.commit()
+    if created_skill is not None:
+        await manager.broadcast_skill_changed(
+            project_id, "created", created_skill.id, user.username
+        )
     return {"ok": True}
 
 
@@ -287,7 +295,7 @@ def get_my_recommendations(
 
 
 @router.post("/projects/{project_id}/personal-recommendations/{recommendation_id}/apply")
-def apply_personal_recommendation(
+async def apply_personal_recommendation(
     project_id: str,
     recommendation_id: str,
     db: DBSession = Depends(get_db),
@@ -303,8 +311,9 @@ def apply_personal_recommendation(
         raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다")
     rec.applied = True
     db.add(rec)
+    created_skill = None
     if rec.type == "skill":
-        _create_skill_from_payload(db, project_id, json.loads(rec.payload))
+        created_skill = _create_skill_from_payload(db, project_id, json.loads(rec.payload))
 
     # 이 추천이 매칭된 팀 그룹도 함께 반영됨으로 표시 (Team ↔ My 연결)
     if rec.group_id is not None:
@@ -314,19 +323,23 @@ def apply_personal_recommendation(
             db.add(group)
 
     db.commit()
+    if created_skill is not None:
+        await manager.broadcast_skill_changed(
+            project_id, "created", created_skill.id, user.username
+        )
     return {"ok": True}
 
 
-def _create_skill_from_payload(db: DBSession, project_id: str, payload: dict) -> None:
+def _create_skill_from_payload(db: DBSession, project_id: str, payload: dict) -> Skill:
     _validate_skill_fields(payload["skill_name"], payload["skill_description"])
-    db.add(
-        Skill(
-            project_id=project_id,
-            name=payload["skill_name"],
-            description=payload["skill_description"],
-            steps_content=payload["suggested_steps"],
-        )
+    skill = Skill(
+        project_id=project_id,
+        name=payload["skill_name"],
+        description=payload["skill_description"],
+        steps_content=payload["suggested_steps"],
     )
+    db.add(skill)
+    return skill
 
 
 def _replace_prior_session(db: DBSession, project_id: str, user_id: int) -> None:

@@ -48,6 +48,19 @@ class ConnectionManager:
                 {"type": "content_updated", "target": target, "updated_by": updated_by}
             )
 
+    async def broadcast_skill_changed(
+        self, project_id: str, action: str, skill_id: str, updated_by: str
+    ) -> None:
+        for _, ws in self._connections.get(project_id, []):
+            await ws.send_json(
+                {
+                    "type": "skill_changed",
+                    "action": action,
+                    "skill_id": skill_id,
+                    "updated_by": updated_by,
+                }
+            )
+
 
 manager = ConnectionManager()
 

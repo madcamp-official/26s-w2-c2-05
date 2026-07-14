@@ -1,17 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createProject } from "@/lib/projects";
 import { logout } from "@/lib/auth";
+
+function GithubStatusNotice() {
+  const searchParams = useSearchParams();
+  if (searchParams.get("github") !== "error") return null;
+  return (
+    <p role="alert" className="text-sm text-red-600">
+      GitHub 연결에 실패했어요.
+    </p>
+  );
+}
 
 export default function Home() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const githubStatus = searchParams.get("github");
 
   useEffect(() => {
     if (!localStorage.getItem("access_token")) {
@@ -50,9 +58,9 @@ export default function Home() {
       >
         로그아웃
       </button>
-      {githubStatus === "error" && (
-        <p role="alert" className="text-sm text-red-600">GitHub 연결에 실패했어요.</p>
-      )}
+      <Suspense fallback={null}>
+        <GithubStatusNotice />
+      </Suspense>
       <div>
         <h1 className="text-xl font-semibold text-ink">
           프로젝트를 선택하거나 새로 만들어보세요

@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from ..deps import get_current_user, get_db
 from ..models import ProjectMember, ProjectRevision, Skill, User
+from .presence import manager
 
 router = APIRouter()
 
@@ -52,6 +53,7 @@ class UpdateSkillRequest(BaseModel):
     name: str
     description: str
     steps_content: str
+    expected_updated_at: datetime | None = None
 
 
 @router.get("/projects/{project_id}/skills", response_model=list[SkillOut])
@@ -80,7 +82,7 @@ def get_skill(
 
 
 @router.put("/projects/{project_id}/skills/{skill_id}", response_model=SkillOut)
-def update_skill(
+async def update_skill(
     project_id: str,
     skill_id: str,
     req: UpdateSkillRequest,
@@ -92,6 +94,11 @@ def update_skill(
     skill = db.get(Skill, skill_id)
     if skill is None or skill.project_id != project_id:
         raise HTTPException(status_code=404, detail="스킬을 찾을 수 없습니다")
+    if (
+        req.expected_updated_at is not None
+        and _as_utc(skill.updated_at) != req.expected_updated_at
+    ):
+        raise HTTPException(status_code=409, detail="다른 팀원이 먼저 저장했어요")
     _validate_skill_fields(req.name, req.description)
     skill.name = req.name
     skill.description = req.description
@@ -109,11 +116,12 @@ def update_skill(
     )
     db.commit()
     db.refresh(skill)
+    await manager.broadcast_skill_changed(project_id, "updated", skill.id, user.username)
     return _to_skill_out(skill)
 
 
 @router.delete("/projects/{project_id}/skills/{skill_id}")
-def delete_skill(
+async def delete_skill(
     project_id: str,
     skill_id: str,
     db: Session = Depends(get_db),
@@ -126,4 +134,5 @@ def delete_skill(
         raise HTTPException(status_code=404, detail="스킬을 찾을 수 없습니다")
     db.delete(skill)
     db.commit()
+    await manager.broadcast_skill_changed(project_id, "deleted", skill_id, user.username)
     return {"ok": True}
