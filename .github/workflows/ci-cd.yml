@@ -19,6 +19,9 @@ jobs:
 
   test-web-server:
     runs-on: ubuntu-latest
+    env:
+      JWT_SECRET: ci-test-jwt-secret
+      ENCRYPTION_KEY: vxiGQE5vvuc8w0VXgJrDhDa48CeVz8qGdXZmDgXNBR0=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
