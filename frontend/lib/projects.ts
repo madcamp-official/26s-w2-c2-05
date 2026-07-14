@@ -186,10 +186,18 @@ export type ClaudeMdPayload = {
   confidence: "low" | "medium" | "high";
 };
 
+export type SkillPayload = {
+  skill_name: string;
+  skill_description: string;
+  suggested_steps: string;
+  reason: string;
+  confidence: "low" | "medium" | "high";
+};
+
 export type PersonalRecommendation = {
   id: string;
-  type: "hook" | "claude_md";
-  payload: HookPayload | ClaudeMdPayload;
+  type: "hook" | "claude_md" | "skill";
+  payload: HookPayload | ClaudeMdPayload | SkillPayload;
   applied: boolean;
 };
 
@@ -233,7 +241,7 @@ export async function getMyRecommendations(id: string): Promise<PersonalRecommen
 
 export type TeamRecommendation = {
   id: string;
-  type: "hook" | "claude_md";
+  type: "hook" | "claude_md" | "skill";
   representative_text: string;
   affected_members: number;
   applied: boolean;
@@ -272,5 +280,58 @@ export async function applyPersonalRecommendationApi(
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? "추천 적용에 실패했습니다");
+  }
+}
+
+export type Skill = {
+  id: string;
+  name: string;
+  description: string;
+  steps_content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listSkills(id: string): Promise<Skill[]> {
+  const res = await fetch(`${API_BASE}/projects/${id}/skills`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("스킬 목록을 불러오지 못했습니다");
+  return res.json();
+}
+
+export async function getSkill(id: string, skillId: string): Promise<Skill> {
+  const res = await fetch(`${API_BASE}/projects/${id}/skills/${skillId}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("스킬을 찾을 수 없습니다");
+  return res.json();
+}
+
+export async function saveSkill(
+  id: string,
+  skillId: string,
+  data: { name: string; description: string; steps_content: string }
+): Promise<Skill> {
+  const res = await fetch(`${API_BASE}/projects/${id}/skills/${skillId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "스킬 저장에 실패했습니다");
+  }
+  return res.json();
+}
+
+export async function deleteSkill(id: string, skillId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}/skills/${skillId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "스킬 삭제에 실패했습니다");
   }
 }
