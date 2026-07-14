@@ -96,6 +96,47 @@ def match_claude_md_candidate(
     return group
 
 
+def match_skill_candidate(
+    db: DBSession,
+    project_id: str,
+    user_id: int,
+    session_id: str,
+    skill_description: str,
+    vector: list[float],
+    reason: str,
+    confidence: str,
+) -> RecommendationGroup:
+    candidates = db.exec(
+        select(RecommendationGroup).where(
+            RecommendationGroup.project_id == project_id,
+            RecommendationGroup.type == "skill",
+        )
+    ).all()
+
+    best_match: RecommendationGroup | None = None
+    best_score = 0.0
+    for group in candidates:
+        if group.representative_vector is None:
+            continue
+        group_vector = json.loads(group.representative_vector)
+        score = cosine_similarity(vector, group_vector)
+        if score > best_score:
+            best_score = score
+            best_match = group
+
+    existing = best_match if best_score >= SIMILARITY_THRESHOLD else None
+    group = _join_or_create_group(
+        db, existing, project_id, "skill", skill_description, user_id,
+        session_id, skill_description, reason, confidence,
+    )
+    if existing is None:
+        group.representative_vector = json.dumps(vector)
+        db.add(group)
+        db.commit()
+        db.refresh(group)
+    return group
+
+
 def _join_or_create_group(
     db: DBSession,
     existing: RecommendationGroup | None,
