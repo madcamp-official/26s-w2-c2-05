@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = "/api";
 
 export async function getQuota(): Promise<{ remaining_rpd: number }> {
   const token = localStorage.getItem("access_token");

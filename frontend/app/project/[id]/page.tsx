@@ -123,7 +123,17 @@ export default function ProjectPage() {
     const token = localStorage.getItem("access_token");
     if (!token) return;
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/projects/${projectId}?token=${token}`);
+    // 로컬 개발에선 NEXT_PUBLIC_WS_BASE(예: ws://localhost:8000)로 웹서버에
+    // 직접 연결한다. 배포 환경에선 이 값을 비워두면(.env에서 미설정)
+    // 현재 origin 기준으로 구성된다 — Next.js rewrites()는 WebSocket 업그레이드를
+    // 안정적으로 프록시하지 못하므로, 이 /ws/* 경로는 Cloudflare Tunnel에서
+    // 별도 ingress 규칙으로 웹서버(8000)에 직접 연결되도록 배포 설정에서
+    // 처리한다(프론트 /api 프록시와는 별개). "localhost"를 그대로 쓰면 배포 시
+    // 접속자 자신의 컴퓨터로 오인되므로 그 경우엔 절대 하드코딩하지 않는다.
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsBase =
+      process.env.NEXT_PUBLIC_WS_BASE || `${wsProtocol}//${window.location.host}`;
+    const ws = new WebSocket(`${wsBase}/ws/projects/${projectId}?token=${token}`);
     wsRef.current = ws;
 
     return () => {
