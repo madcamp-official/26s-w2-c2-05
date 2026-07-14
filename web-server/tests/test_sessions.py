@@ -223,6 +223,8 @@ def test_team_recommendations_shown_with_evidence_after_promotion(
     assert len(body) == 1
     assert body[0]["affected_members"] == 2
     assert len(body[0]["evidence"]) == 2
+    assert body[0]["event"] == "PostToolUse"
+    assert body[0]["matcher"] == "Bash"
 
 
 def test_get_my_recommendations_only_shows_own(client, db_session, monkeypatch):

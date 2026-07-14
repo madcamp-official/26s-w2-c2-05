@@ -4,6 +4,7 @@ from typing import Optional
 from sqlmodel import SQLModel, Field
 
 DEFAULT_MD = "# CLAUDE.md\n\n이 프로젝트에서 Claude가 지켜야 할 규칙을 적어보세요.\n"
+DEFAULT_HOOKS = '{\n  "hooks": {}\n}'
 
 
 def new_id() -> str:
@@ -23,6 +24,7 @@ class Project(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     name: str
     content: str = Field(default=DEFAULT_MD)
+    hooks_content: str = Field(default=DEFAULT_HOOKS)
     github_repo: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -44,6 +46,7 @@ class ProjectRevision(SQLModel, table=True):
     project_id: str = Field(foreign_key="projects.id")
     user_id: int = Field(foreign_key="users.user_id")
     content: str
+    target: str = Field(default="content")  # 'content' | 'hooks'
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Session(SQLModel, table=True):

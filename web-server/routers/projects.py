@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,7 @@ class ProjectOut(BaseModel):
     id: str
     name: str
     content: str
+    hooks_content: str
     github_repo: str | None
     created_at: datetime
     role: str
@@ -33,6 +35,7 @@ def _to_project_out(project: Project, role: str) -> ProjectOut:
         id=project.id,
         name=project.name,
         content=project.content,
+        hooks_content=project.hooks_content,
         github_repo=project.github_repo,
         created_at=_as_utc(project.created_at),
         role=role,
@@ -45,6 +48,10 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateContentRequest(BaseModel):
     content: str
+
+
+class UpdateHooksRequest(BaseModel):
+    hooks_content: str
 
 
 class RenameProjectRequest(BaseModel):
@@ -121,6 +128,38 @@ def update_project_content(
     return _to_project_out(project, member.role)
 
 
+@router.put("/projects/{project_id}/hooks", response_model=ProjectOut)
+def update_project_hooks(
+    project_id: str,
+    req: UpdateHooksRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectOut:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    try:
+        json.loads(req.hooks_content)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="올바른 JSON 형식이 아니에요")
+    project.hooks_content = req.hooks_content
+    db.add(project)
+    db.add(
+        ProjectRevision(
+            project_id=project_id,
+            user_id=user.user_id,
+            content=req.hooks_content,
+            target="hooks",
+        )
+    )
+    db.commit()
+    db.refresh(project)
+    return _to_project_out(project, member.role)
+
+
 @router.put("/projects/{project_id}/name", response_model=ProjectOut)
 def rename_project(
     project_id: str,
@@ -145,6 +184,7 @@ class RevisionListOut(BaseModel):
     id: str
     created_at: datetime
     username: str
+    target: str
 
 
 class RevisionDetailOut(BaseModel):
@@ -156,18 +196,25 @@ class RevisionDetailOut(BaseModel):
 
 @router.get("/projects/{project_id}/revisions", response_model=list[RevisionListOut])
 def list_revisions(
-    project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    project_id: str,
+    target: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[RevisionListOut]:
     if db.get(ProjectMember, (project_id, user.user_id)) is None:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
-    rows = db.exec(
+    query = (
         select(ProjectRevision, User)
         .join(User, User.user_id == ProjectRevision.user_id)
         .where(ProjectRevision.project_id == project_id)
-        .order_by(ProjectRevision.created_at.desc())
-    ).all()
+    )
+    if target is not None:
+        query = query.where(ProjectRevision.target == target)
+    rows = db.exec(query.order_by(ProjectRevision.created_at.desc())).all()
     return [
-        RevisionListOut(id=r.id, created_at=_as_utc(r.created_at), username=u.username)
+        RevisionListOut(
+            id=r.id, created_at=_as_utc(r.created_at), username=u.username, target=r.target
+        )
         for r, u in rows
     ]
 
@@ -287,6 +334,11 @@ def push_to_github(
     if owner.github_token_encrypted is None:
         raise HTTPException(status_code=400, detail="프로젝트 owner가 GitHub 계정을 연결하지 않았습니다")
 
+    try:
+        json.loads(project.hooks_content)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="hooks_content가 올바른 JSON 형식이 아니에요")
+
     token = github_client.decrypt_token(owner.github_token_encrypted)
     try:
         github_client.push_file(
@@ -295,6 +347,13 @@ def push_to_github(
             path="CLAUDE.md",
             content=project.content,
             message=f"Update CLAUDE.md via {project.name}",
+        )
+        github_client.push_file(
+            token=token,
+            repo=project.github_repo,
+            path=".claude/settings.json",
+            content=project.hooks_content,
+            message=f"Update .claude/settings.json via {project.name}",
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

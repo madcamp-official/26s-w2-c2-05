@@ -83,3 +83,13 @@ def test_owner_can_rename_project(client, db_session):
 
     get_resp = client.get(f"/projects/{project_id}", headers=auth_headers(owner_token))
     assert get_resp.json()["name"] == "새 이름"
+
+
+def test_create_project_response_includes_default_hooks_content(client, db_session):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+
+    resp = client.post(
+        "/projects", json={"name": "test"}, headers=auth_headers(owner_token)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["hooks_content"] == '{\n  "hooks": {}\n}'
