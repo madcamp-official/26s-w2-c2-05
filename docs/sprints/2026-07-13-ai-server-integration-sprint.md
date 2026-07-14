@@ -1,15 +1,5 @@
 # AI 서버 ↔ 웹서버 연동 스프린트
 
-**진행 상황 (2026-07-13 재확인)**: Day 1~4(T-01~T-17)는 이미 구현 완료된 것으로
-코드에서 확인됨 — 백엔드 테스트 파일(`test_ai_client.py`, `test_preprocessing.py`,
-`test_matching.py`, `test_sessions.py`) 전부 존재, 프론트(`frontend/lib/projects.ts`의
-`uploadSession`/`getMyRecommendations`/`getTeamRecommendations`, `app/project/[id]/page.tsx`의
-`applyPersonalRecommendation`/`applyTeamRecommendation`)도 실제로 연결돼 있음.
-아래 각 Day 헤더에 완료 표시하고, T-16 옆에 새로 나온 미결 사항(my/team 적용
-정책) 하나만 플래그해둠. **Day 5(신규)** 에 브레인스토밍(`docs/superpowers/specs/
-2026-07-13-onboarding-and-web-ai-integration-design.md`)에서 나온 Stage 0
-온보딩 연동 + push 권한 버그 수정을 추가함.
-
 **스프린트 목표**: 완성된 `ai_server`(`/analyze`, `/embed`)를 `web-server`에 붙여서,
 DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개인 추천(hook/CLAUDE.md)
 → 여러 팀원의 추천이 쌓이면 팀 공통 규칙으로 자동 승격 → CLAUDE.md에 반영** — 을
@@ -58,7 +48,7 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 
 ---
 
-## Day 1 — 웹서버 ↔ AI서버 연결 배관 (TDD) — **완료 (2026-07-13 확인)**
+## Day 1 — 웹서버 ↔ AI서버 연결 배관 (TDD)
 
 | 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 |
 |---|---|---|---|---|---|
@@ -67,7 +57,7 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 | T-03 | `web-server/preprocessing.py` — 세션 JSONL 규칙 기반 전처리 (Red→Green) | `extract_pattern_summary(jsonl_text: str) -> str \| None`. Claude Code 세션 JSONL에서 반복되는 bash 커맨드(`tool_use`+`Bash`)와 유저 정정 발언(`type: user`, "아니/말고/대신/하지 마/다시" 키워드)을 추출, 3회 미만은 버림. **Task 착수 전 실제 세션 JSONL 샘플 하나로 필드명이 이 가정과 맞는지 대조할 것** — 다르면 이 함수 내부만 교체(인터페이스 고정이라 이후 태스크 영향 없음). | 2시간 | 없음(T-02와 병렬 가능) | 테스트 4개(반복 bash 커맨드 추출/반복 유저 정정 추출/임계값 미달 버림/malformed 라인 무시) — `docs/superpowers/plans/2026-07-10-web-server-frontend.md` Task 3의 테스트 케이스 재사용 가능 |
 | T-04 | 전체 테스트 확인 | `pytest web-server/tests -v` 통과 확인. | 15분 | T-02, T-03 | 전체 PASS |
 
-## Day 2 — 개인 추천 모델 + 업로드 오케스트레이션 (TDD) — **완료 (2026-07-13 확인)**
+## Day 2 — 개인 추천 모델 + 업로드 오케스트레이션 (TDD)
 
 | 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 |
 |---|---|---|---|---|---|
@@ -76,7 +66,7 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 | T-07 | 개인 추천 조회 API | `GET /projects/{project_id}/recommendations/me` — 로그인한 유저 자신의 최신 `PersonalRecommendation` 목록. | 30분 | T-06 | 테스트: 본인 것만 보임, 다른 유저 것 안 섞임 |
 | T-08 | 전체 테스트 확인 | `pytest web-server/tests -v`. | 15분 | T-07 | 전체 PASS |
 
-## Day 3 — 팀 매칭 + 승격 (TDD) — **완료 (2026-07-13 확인)**
+## Day 3 — 팀 매칭 + 승격 (TDD)
 
 | 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 |
 |---|---|---|---|---|---|
@@ -86,13 +76,13 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 | T-12 | 팀 추천(승격된 것만) 조회 API | `GET /projects/{project_id}/recommendations/team` — `promoted=True`인 그룹만, 근거(`GroupMembership`의 `original_text`/몇 명인지) 포함. 프로젝트 멤버만 접근 가능. | 45분 | T-11 | 테스트: 승격 전엔 빈 배열, 승격 후 근거와 함께 나옴 |
 | T-13 | 전체 테스트 확인 | `pytest web-server/tests -v`. | 15분 | T-12 | 전체 PASS |
 
-## Day 4 — 프론트엔드 연동 (UI 구현 후 수동 확인) — **완료 (2026-07-13 확인)**
+## Day 4 — 프론트엔드 연동 (UI 구현 후 수동 확인)
 
 | 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 |
 |---|---|---|---|---|---|
 | T-14 | `lib/projects.ts`에 함수 추가 | `uploadSession(projectId, file)`(multipart POST), `getMyRecommendations(projectId)`, `getTeamRecommendations(projectId)`. 타입(`PersonalRecommendation`, `TeamRecommendation`) 정의. | 45분 | T-07, T-12 | `npx tsc --noEmit` 통과 |
 | T-15 | "세션 업로드" 버튼을 실제 제출로 교체 | 기존 스텁(`disabled`, 파일 선택만 되고 제출 안 됨)을 실제 업로드로 바꿈. 업로드 중 로딩 상태, 실패 시(429/503/no_patterns 등) 메시지 표시, 성공 시 개인/팀 추천 목록 갱신. | 1.5시간 | T-14 | 파일 올리면 실제로 API 호출되고 결과 반영되는지 수동 확인 |
-| T-16 | 개인 추천 카드 UI | aside에 "내 추천" 섹션 추가 — 이전에 있던 "추천(예시)" 정적 카드 UI를 실제 데이터로 되살림(hook/claude_md 타입별 카드, "적용하기" 클릭 시 `content` textarea에 append). **⚠️ 미결(2026-07-13)**: `applyPersonalRecommendation`(개인만의, 아직 팀 승격 안 된 추천)에도 "적용하기" 버튼이 이미 붙어있는데, 이게 CLAUDE.md의 의의(팀이 실제 합의한 내용)에 맞는지 팀 논의 중 — `docs/superpowers/specs/2026-07-13-onboarding-and-web-ai-integration-design.md` "보류 항목" 참고. 결정 나면 버튼 유지/제거 여부 확정. | 1.5시간 | T-15 | 적용하기 누르면 textarea에 반영되고, "저장"을 눌러야 실제 커밋되는지 확인 |
+| T-16 | 개인 추천 카드 UI | aside에 "내 추천" 섹션 추가 — 이전에 있던 "추천(예시)" 정적 카드 UI를 실제 데이터로 되살림(hook/claude_md 타입별 카드, "적용하기" 클릭 시 `content` textarea에 append). | 1.5시간 | T-15 | 적용하기 누르면 textarea에 반영되고, "저장"을 눌러야 실제 커밋되는지 확인 |
 | T-17 | 팀 추천(승격된 것) UI | aside에 "팀 추천" 섹션 추가 — "N명에게서 나온 규칙" 근거와 함께 표시, "적용하기"는 개인 추천과 동일하게 textarea에 병합. | 1시간 | T-15 | 2계정으로 업로드해서 2번째 업로드 후 팀 추천이 뜨는지 수동 확인 |
 | T-18 | 검증 + 마무리 | `npx tsc --noEmit`, 백엔드 `pytest` 전체, 브라우저에서 2계정으로 전체 시나리오(업로드→개인 추천→적용→저장, 2번째 계정 업로드→팀 추천 승격) 수동 확인. `/simplify`로 과설계 없는지 확인. | 1시간 | T-16, T-17 | 타입체크+테스트 통과, 수동 시나리오 통과 |
 
