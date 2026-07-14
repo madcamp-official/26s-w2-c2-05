@@ -13,7 +13,9 @@ from ai_server.schemas import (
     GeminiAnalyzeSchema,
     GeminiClaudeMdCandidate,
     GeminiHookCandidate,
+    GeminiSkillCandidate,
     HookCandidate,
+    SkillRecommendation,
 )
 from ai_server.tests.fakes import FakeClient
 
@@ -155,5 +157,38 @@ async def test_injects_type_field_when_converting_gemini_response():
                 reason="여러 번 정정하셨어요.",
                 confidence="medium",
             ),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_injects_type_field_for_skill_candidates():
+    gemini_response = GeminiAnalyzeSchema(
+        hook_candidates=[],
+        claude_md_candidates=[],
+        skill_candidates=[
+            GeminiSkillCandidate(
+                skill_name="run-migrations",
+                skill_description="마이그레이션 후 시드와 재시작을 순서대로 진행한다",
+                suggested_steps="1. migrate\n2. seed\n3. restart",
+                reason="매번 이 순서로 실행하셨어요.",
+                confidence="high",
+            )
+        ],
+    )
+    client = FakeClient(FakeModels([gemini_response]))
+
+    result = await call_gemini_analyze(client, "패턴 요약")
+
+    assert result == AnalyzeResponse(
+        candidates=[
+            SkillRecommendation(
+                type="skill",
+                skill_name="run-migrations",
+                skill_description="마이그레이션 후 시드와 재시작을 순서대로 진행한다",
+                suggested_steps="1. migrate\n2. seed\n3. restart",
+                reason="매번 이 순서로 실행하셨어요.",
+                confidence="high",
+            )
         ]
     )
