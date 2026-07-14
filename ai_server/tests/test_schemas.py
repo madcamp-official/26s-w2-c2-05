@@ -1,7 +1,12 @@
+import pytest
+from pydantic import ValidationError
+
 from ai_server.schemas import (
     AnalyzeResponse,
     HookCandidate,
     ClaudeMdCandidate,
+    OnboardingRequest,
+    OnboardingResponse,
 )
 
 
@@ -46,3 +51,37 @@ def test_analyze_endpoint_response_carries_remaining_rpd():
     resp = AnalyzeEndpointResponse(candidates=[], remaining_rpd=19)
     assert resp.remaining_rpd == 19
     assert resp.candidates == []
+
+
+def test_onboarding_request_holds_selected_fields():
+    req = OnboardingRequest(
+        principles=["tdd", "conventional_commits"],
+        tech_stack="Python, FastAPI",
+        team_or_individual="team",
+        indent_style="spaces",
+    )
+    assert req.custom_requirements == ""
+
+    dumped = req.model_dump_json()
+    restored = OnboardingRequest.model_validate_json(dumped)
+    assert restored.principles == ["tdd", "conventional_commits"]
+    assert restored.tech_stack == "Python, FastAPI"
+    assert restored.team_or_individual == "team"
+    assert restored.indent_style == "spaces"
+
+
+def test_onboarding_request_rejects_invalid_literal():
+    with pytest.raises(ValidationError):
+        OnboardingRequest(
+            principles=[],
+            tech_stack="Python",
+            team_or_individual="solo",
+            indent_style="spaces",
+        )
+
+
+def test_onboarding_response_holds_markdown_text():
+    resp = OnboardingResponse(base_claude_md="# CLAUDE.md\n\n- 스페이스로 들여쓰기")
+    dumped = resp.model_dump_json()
+    restored = OnboardingResponse.model_validate_json(dumped)
+    assert restored.base_claude_md.startswith("# CLAUDE.md")

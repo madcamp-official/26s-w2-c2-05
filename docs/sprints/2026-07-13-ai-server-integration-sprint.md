@@ -98,7 +98,7 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 
 ---
 
-## Day 5 (신규, 2026-07-13) — Stage 0 온보딩 연동 + push 권한 버그 수정
+## Day 5 (신규, 2026-07-13) — Stage 0 온보딩 연동 + push 권한 버그 수정 — **완료 (2026-07-14)**
 
 `docs/superpowers/specs/2026-07-13-onboarding-and-web-ai-integration-design.md`
 브레인스토밍 결과. Stage 0(온보딩)는 my/team 적용 정책 결정과 무관하므로
@@ -107,11 +107,11 @@ DESIGN.md가 원래 그리던 핵심 기능 — **세션 JSONL 업로드 → 개
 
 | 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 |
 |---|---|---|---|---|---|
-| T-19 | 웹서버 온보딩 트리거 엔드포인트 (Red→Green) | `web-server/routers/projects.py`(또는 신규 `onboarding.py`)에 `POST /projects/{id}/onboarding` 추가 — 온보딩 폼 데이터를 받아 AI서버 `POST /generate-base-claude-md`(T-12, AI서버 스프린트 Day4) 호출 후 `project.content`를 결과로 갱신. 기존 `create_project`는 건드리지 않음(설계 문서 "권장 (B)" 근거). | 1.5시간 | AI서버 T-11/T-12 | 테스트: 온보딩 제출 시 content가 생성된 텍스트로 바뀜, 멤버 아닌 유저는 403 |
-| T-20 | 프론트 온보딩 폼 UI | 프로젝트 생성 직후 온보딩 폼으로 이동 — 개발 원칙 체크리스트(다중 선택), 팀/개인 토글, 탭/스페이스 토글, 자유 텍스트. 제출 시 T-19 호출 후 프로젝트 페이지로 이동. | 2시간 | T-19 | 폼 제출 → content에 생성된 텍스트가 반영되는지 수동 확인 |
-| T-21 | 온보딩 스킵 처리 | 폼을 건너뛰면 기존 `DEFAULT_MD` 그대로 유지(온보딩은 선택 사항, 강제 아님). | 30분 | T-20 | 스킵 시 기존 동작과 동일한지 확인 |
-| T-22 | 전체 테스트 + 수동 확인 | `pytest web-server/tests -v` 전체 통과, 프론트 `npx tsc --noEmit`, 브라우저에서 온보딩 폼 제출 후 결과 확인. | 45분 | T-21 | 전체 PASS |
-| T-23 | push 권한 버그 수정 | `web-server/routers/projects.py:276`(`push_to_github`) — 현재 `member is None`만 확인해 멤버 아무나 push 가능. `member.role != "owner"` 체크로 변경(`rename_project`/`delete_project`와 동일 패턴). | 20분 | 없음 | 테스트: owner 아닌 멤버가 push 호출 시 403 (기존엔 200이었을 케이스) |
+| T-19 | 웹서버 온보딩 트리거 엔드포인트 (Red→Green) — **완료 (2026-07-14)** | `web-server/routers/projects.py`에 `POST /projects/{id}/onboarding` 추가(기존 project 라우터에 합침 — invite/rename/push와 같은 패턴), `web-server/ai_client.py`에 `generate_base_claude_md` 추가(analyze/embed와 동일한 MockTransport 테스트 패턴). 온보딩 폼 데이터를 받아 AI서버 `POST /generate-base-claude-md`(T-12, AI서버 스프린트 Day4, 2026-07-14 완료) 호출 후 `project.content`를 결과로 갱신. 429/503도 `sessions.py`의 `upload_session`과 동일하게 패스스루. 기존 `create_project`는 건드리지 않음(설계 문서 "권장 (B)" 근거) — `create_project`가 revision을 안 남기는 것과 동일하게 온보딩도 revision 미생성(초기 세팅 단계라는 선례를 따름). | 1.5시간 | AI서버 T-11/T-12 | 테스트 6개(ai_client 3 + 라우터 3) 통과: 온보딩 제출 시 content가 생성된 텍스트로 바뀜, 멤버 아닌 유저는 403, 429 전파 |
+| T-20 | 프론트 온보딩 폼 UI — **완료 (2026-07-14)** | 신규 `frontend/app/project/[id]/onboarding/page.tsx` — 개발 원칙 체크리스트(6개, 다중 선택), 기술 스택 입력, 팀/개인 라디오, 탭/스페이스 라디오, 자유 텍스트. `lib/projects.ts`에 `onboardProject` 추가. `app/page.tsx`의 `createProject` 후 리다이렉트를 `/project/{id}`에서 `/project/{id}/onboarding`으로 변경. 제출 시 T-19 호출 후 프로젝트 페이지로 이동. | 2시간 | T-19 | 폼 제출 → content에 생성된 텍스트가 반영되는지 수동 확인 |
+| T-21 | 온보딩 스킵 처리 — **완료 (2026-07-14)** | "건너뛰기" 버튼은 API 호출 없이 `/project/{id}`로 바로 이동 — 온보딩 미실행이므로 `DEFAULT_MD` 그대로 유지(온보딩은 선택 사항, 강제 아님). | 30분 | T-20 | 스킵 시 기존 동작과 동일한지 확인 |
+| T-22 | 전체 테스트 + 수동 확인 — **완료 (2026-07-14)** | `pytest web-server/tests -v` 63/63 PASS, `pytest ai_server -v` 37/37 PASS, 프론트 `npx tsc --noEmit` 통과(exit 0). 세 서버(ai_server:8001, web-server:8000, frontend:3000) 기동 후 브라우저(gstack `/browse`)로 실제 시나리오 확인: 신규 유저 가입 → 프로젝트 생성 → `/onboarding`으로 자동 리다이렉트 → 원칙 2개(TDD, Conventional Commits) + 기술 스택("Python, FastAPI") + 커스텀 요구사항 입력 후 제출 → 실제 Gemini 응답으로 content가 "# 프로젝트 개발 규칙 ... TDD 방식을 준수한다 ... Conventional Commits ... 스페이스(spaces)를 사용한다"로 갱신됨 확인(정적 템플릿 아님). 두 번째 프로젝트로 "건너뛰기" 클릭 시 `/project/{id}`로 바로 이동하고 content가 기존 `DEFAULT_MD` 그대로인 것 확인. | 45분 | T-21 | 전체 PASS |
+| T-23 | push 권한 버그 수정 — **완료 (2026-07-14)** | `web-server/routers/projects.py`(`push_to_github`) — 기존 `member is None`만 확인하던 것을 `member is None or member.role != "owner"` 체크로 변경(`rename_project`/`delete_project`와 동일 패턴). 기존에 이 엔드포인트 테스트가 아예 없어서(확인 중 발견) `test_non_owner_cannot_push`를 Red→Green으로 새로 작성. | 20분 | 없음 | 테스트: owner 아닌 멤버가 push 호출 시 403 (기존엔 400이었을 케이스 — github_repo 미설정 상태라 실제로는 owner 체크 전에 이미 걸렸지만, repo가 설정된 프로젝트였다면 200이 나갔을 버그) |
 
 ---
 

@@ -33,3 +33,19 @@ async def embed(text: str, client: httpx.AsyncClient | None = None) -> list[floa
     finally:
         if owns_client:
             await client.aclose()
+
+
+async def generate_base_claude_md(
+    onboarding: dict, client: httpx.AsyncClient | None = None
+) -> str:
+    owns_client = client is None
+    client = client or httpx.AsyncClient(base_url=AI_SERVER_URL, timeout=20.0)
+    try:
+        resp = await client.post("/generate-base-claude-md", json=onboarding)
+        if resp.status_code == 429:
+            raise GeminiQuotaExceeded()
+        resp.raise_for_status()
+        return resp.json()["base_claude_md"]
+    finally:
+        if owns_client:
+            await client.aclose()

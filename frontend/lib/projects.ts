@@ -49,6 +49,27 @@ export async function renameProject(id: string, name: string): Promise<Project> 
   return res.json();
 }
 
+export type OnboardingRequest = {
+  principles: string[];
+  tech_stack: string;
+  team_or_individual: "team" | "individual";
+  indent_style: "tabs" | "spaces";
+  custom_requirements?: string;
+};
+
+export async function onboardProject(id: string, req: OnboardingRequest): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${id}/onboarding`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "온보딩 생성에 실패했습니다");
+  }
+  return res.json();
+}
+
 export async function saveProjectContent(id: string, content: string): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${id}`, {
     method: "PUT",

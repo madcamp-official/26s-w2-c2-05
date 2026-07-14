@@ -28,7 +28,7 @@ export default function Home() {
     setError(null);
     try {
       const project = await createProject(trimmed);
-      router.push(`/project/${project.id}`);
+      router.push(`/project/${project.id}/onboarding`);
     } catch (err) {
       setError((err as Error).message);
     }

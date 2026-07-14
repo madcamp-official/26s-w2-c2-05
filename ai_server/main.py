@@ -6,9 +6,17 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException
 from google import genai
 
-from .schemas import AnalyzeRequest, AnalyzeEndpointResponse, EmbedRequest, EmbedResponse
+from .schemas import (
+    AnalyzeRequest,
+    AnalyzeEndpointResponse,
+    EmbedRequest,
+    EmbedResponse,
+    OnboardingRequest,
+    OnboardingResponse,
+)
 from .gemini_client import call_gemini_analyze, GeminiCallFailed, GeminiQuotaExceeded
 from .embed_client import call_gemini_embed
+from .onboarding_client import call_gemini_onboarding
 from .rate_limit import gemini_analyze_rpd_counter
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -54,5 +62,20 @@ async def analyze(
 async def embed(req: EmbedRequest, client=Depends(get_gemini_client)) -> EmbedResponse:
     try:
         return await call_gemini_embed(client, req.text)
+    except GeminiCallFailed:
+        raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
+
+
+@app.post("/generate-base-claude-md", response_model=OnboardingResponse)
+async def generate_base_claude_md(
+    req: OnboardingRequest, client=Depends(get_gemini_client)
+) -> OnboardingResponse:
+    # 온보딩도 생성 모델(analyze와 동일 쿼터)을 쓰므로 같은 RPD 카운터를 소비한다.
+    if not gemini_analyze_rpd_counter.consume():
+        raise HTTPException(status_code=429, detail=RPD_EXHAUSTED_DETAIL)
+    try:
+        return await call_gemini_onboarding(client, req)
+    except GeminiQuotaExceeded:
+        raise HTTPException(status_code=429, detail=RPD_EXHAUSTED_DETAIL)
     except GeminiCallFailed:
         raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
