@@ -327,13 +327,15 @@ export async function getSkill(id: string, skillId: string): Promise<Skill> {
 export async function saveSkill(
   id: string,
   skillId: string,
-  data: { name: string; description: string; steps_content: string }
+  data: { name: string; description: string; steps_content: string },
+  expectedUpdatedAt?: string
 ): Promise<Skill> {
   const res = await fetch(`${API_BASE}/projects/${id}/skills/${skillId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, expected_updated_at: expectedUpdatedAt ?? null }),
   });
+  if (res.status === 409) throw new SaveConflictError("다른 팀원이 먼저 저장했어요");
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? "스킬 저장에 실패했습니다");
