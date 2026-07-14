@@ -126,7 +126,7 @@ export default function ProjectPage() {
     const token = localStorage.getItem("access_token");
     if (!token) return;
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/projects/${projectId}?token=${token}`);
+    const ws = new WebSocket(`wss://api.coolal.madcamp-kaist.org/ws/projects/${projectId}?token=${token}`);
     wsRef.current = ws;
 
     return () => {

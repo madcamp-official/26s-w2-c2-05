@@ -1,0 +1,16 @@
+nohup: ignoring input
+INFO:     Started server process [97177]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     34.122.147.229:0 - "GET /projects/undefined HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /auth/github/status HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /projects/undefined/recommendations/team HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /projects/undefined/skills HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /projects/undefined/recommendations/me HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /projects HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /projects/undefined/revisions HTTP/1.1" 401 Unauthorized
+INFO:     34.122.147.229:0 - "GET /auth/github/status HTTP/1.1" 401 Unauthorized
+INFO:     205.169.39.46:0 - "GET / HTTP/1.1" 404 Not Found
+INFO:     104.197.69.115:0 - "GET / HTTP/1.1" 404 Not Found
+INFO:     34.123.170.104:0 - "GET / HTTP/1.1" 404 Not Found
