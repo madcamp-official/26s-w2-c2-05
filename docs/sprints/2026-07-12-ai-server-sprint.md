@@ -46,6 +46,25 @@
 
 ---
 
+---
+
+## Day 4 (추가, 2026-07-13) — Stage 0 온보딩 엔드포인트 — **완료 (2026-07-14)**
+
+`docs/superpowers/specs/2026-07-13-onboarding-and-web-ai-integration-design.md`
+브레인스토밍 결과 반영. 세션 시작 전 온보딩(개발 원칙 체크리스트 + 팀/개인
++ 탭/스페이스 + 자유 텍스트)으로 베이스 CLAUDE.md를 생성하는 신규
+엔드포인트. 이 스프린트가 이미 완료된 뒤에 나온 추가 요구사항이라 별도
+Day로 분리 — T-01~T-10과 의존관계 없음(스키마/limiter/RPD 카운터는
+재사용).
+
+| 태스크 ID | 태스크명 | 상세 내용 | 예상 소요 시간 | 의존성 | 수락 기준 | 관련 DESIGN.md 섹션 |
+|---|---|---|---|---|---|---|
+| T-11 | 온보딩 스키마 정의 (Red→Green) — **완료 (2026-07-14)** | `ai_server/schemas.py`에 `OnboardingRequest`(`principles: list[str]`, `tech_stack: str`, `team_or_individual: Literal["team","individual"]`, `indent_style: Literal["tabs","spaces"]`, `custom_requirements: str = ""`) + `OnboardingResponse`(`base_claude_md: str`) 추가. 필드가 문자열 하나뿐이라 T-08에서 겪은 Union/const 제약과 무관 — Gemini `response_schema`로 그대로 사용 가능. | 45분 | 없음 | 스키마 테스트 통과 | 스펙 문서 "컴포넌트 1" 참고. 대응하는 DESIGN.md TODO 항목 없음(신규 기능) |
+| T-12 | `POST /generate-base-claude-md` 구현 (Red→Green) — **완료 (2026-07-14)** | 신규 `ai_server/onboarding_client.py`(`call_gemini_onboarding`, `GEMINI_MODEL`/`GEMINI_TIMEOUT_SECONDS`/`GeminiCallFailed`/`GeminiQuotaExceeded`는 `gemini_client.py`에서 그대로 import, `embed_client.py`와 동일 관례) + `ai_server/main.py`에 엔드포인트 추가. 선택 항목+자유 텍스트를 시스템 프롬프트에 넣어 Gemini 호출 1회(타임아웃 15초, 재시도 1회) → `base_claude_md` 텍스트 반환. 기존 `gemini_analyze_limiter`/`gemini_analyze_rpd_counter` 재사용(새 limiter 안 만듦). 429(RPD 소진)/503(그 외 실패) 구분도 T-07과 동일 패턴. | 2시간 | T-11 | 테스트 3~4개(성공/429/503/malformed) — 실제 10개(wrapper 6 + endpoint 4) 통과 | 프롬프트당 요구사항 최소화 원칙(섹션5) 유지 — "왜 이 규칙인지" 설명 없이 담백한 규칙 목록으로 생성 |
+| T-13 | 전체 테스트 + 수동 확인 — **완료 (2026-07-14)** | `pytest ai_server -v` 37/37 PASS(신규 13개 포함). 실제 Gemini 키로 curl 2가지 입력 조합(team/spaces/tdd+code_review vs individual/tabs/conventional_commits+커스텀 요구사항) 확인 — 결과물이 실제로 다르게 생성됨(정적 템플릿 아님 재확인). | 1시간 | T-12 | 전체 PASS, curl 결과 문서에 기록 | Stage 0가 2026-07-11 기각 사유("정적 템플릿")를 실제로 해소하는지 검증 |
+
+---
+
 ## 이 스프린트에서 반드시 결정해야 하는 것 (DESIGN.md TODO 중 AI서버 블로킹 항목)
 
 - **섹션 5**: 한 호출에 몇 개 일을 시킬지 (T-01)

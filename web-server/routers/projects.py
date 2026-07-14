@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
+from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from pydantic import BaseModel
 
 from ..deps import get_db, get_current_user
 from ..models import Project, ProjectMember, ProjectRevision, User
-from .. import github_client
+from .. import ai_client, github_client
 
 router = APIRouter()
 
@@ -57,6 +59,14 @@ class SetGithubRepoRequest(BaseModel):
 
 class InviteMemberRequest(BaseModel):
     username: str
+
+
+class OnboardingRequest(BaseModel):
+    principles: list[str]
+    tech_stack: str
+    team_or_individual: Literal["team", "individual"]
+    indent_style: Literal["tabs", "spaces"]
+    custom_requirements: str = ""
 
 
 @router.post("/projects", response_model=ProjectOut)
@@ -116,6 +126,32 @@ def update_project_content(
     db.add(
         ProjectRevision(project_id=project_id, user_id=user.user_id, content=req.content)
     )
+    db.commit()
+    db.refresh(project)
+    return _to_project_out(project, member.role)
+
+
+@router.post("/projects/{project_id}/onboarding", response_model=ProjectOut)
+async def onboard_project(
+    project_id: str,
+    req: OnboardingRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectOut:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    try:
+        content = await ai_client.generate_base_claude_md(req.model_dump())
+    except ai_client.GeminiQuotaExceeded:
+        raise HTTPException(status_code=429, detail="오늘의 요청 한도를 모두 사용했습니다")
+    except httpx.HTTPStatusError:
+        raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
+    project.content = content
+    db.add(project)
     db.commit()
     db.refresh(project)
     return _to_project_out(project, member.role)
@@ -273,8 +309,9 @@ def push_to_github(
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
-    if db.get(ProjectMember, (project_id, user.user_id)) is None:
-        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None or member.role != "owner":
+        raise HTTPException(status_code=403, detail="owner만 push를 실행할 수 있습니다")
     if not project.github_repo:
         raise HTTPException(status_code=400, detail="이 프로젝트에 연결된 GitHub repo가 없습니다")
 

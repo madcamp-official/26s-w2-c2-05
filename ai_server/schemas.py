@@ -98,3 +98,15 @@ class EmbedRequest(BaseModel):
 
 class EmbedResponse(BaseModel):
     vector: list[float]
+
+
+class OnboardingRequest(BaseModel):
+    principles: list[str]
+    tech_stack: str
+    team_or_individual: Literal["team", "individual"]
+    indent_style: Literal["tabs", "spaces"]
+    custom_requirements: str = ""
+
+
+class OnboardingResponse(BaseModel):
+    base_claude_md: str
