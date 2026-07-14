@@ -162,3 +162,31 @@ def test_onboarding_endpoint_returns_503_on_other_failure(monkeypatch):
 
     assert resp.status_code == 503
     app.dependency_overrides.clear()
+
+
+def test_remaining_rpd_endpoint_returns_current_count(monkeypatch):
+    monkeypatch.setattr("ai_server.main.gemini_analyze_rpd_counter.remaining", lambda: 342)
+
+    resp = client.get("/remaining-rpd")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"remaining_rpd": 342}
+
+
+def test_remaining_rpd_endpoint_does_not_consume_quota(monkeypatch):
+    calls = {"consume": 0}
+
+    def fake_remaining():
+        return 500
+
+    def fake_consume():
+        calls["consume"] += 1
+        return True
+
+    monkeypatch.setattr("ai_server.main.gemini_analyze_rpd_counter.remaining", fake_remaining)
+    monkeypatch.setattr("ai_server.main.gemini_analyze_rpd_counter.consume", fake_consume)
+
+    client.get("/remaining-rpd")
+    client.get("/remaining-rpd")
+
+    assert calls["consume"] == 0

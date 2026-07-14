@@ -104,3 +104,17 @@ async def test_generate_base_claude_md_raises_http_error_on_503():
     ) as fake_client:
         with pytest.raises(httpx.HTTPStatusError):
             await ai_client.generate_base_claude_md(ONBOARDING_PAYLOAD, client=fake_client)
+
+
+@pytest.mark.asyncio
+async def test_get_remaining_rpd_returns_int():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/remaining-rpd"
+        return httpx.Response(200, json={"remaining_rpd": 342})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://test"
+    ) as fake_client:
+        result = await ai_client.get_remaining_rpd(client=fake_client)
+
+    assert result == 342
