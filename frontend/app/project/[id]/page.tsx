@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   getProject,
   saveProjectContent,
@@ -31,7 +31,7 @@ import {
   type Skill,
   type SkillPayload,
 } from "@/lib/projects";
-import { getGithubStatus } from "@/lib/auth";
+import { getGithubStatus, logout } from "@/lib/auth";
 
 type OnlineUser = {
   user_id: number;
@@ -73,6 +73,7 @@ function mergeHookIntoJson(
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params.id;
+  const router = useRouter();
 
   const [project, setProject] = useState<Project | undefined>();
   const [content, setContent] = useState("");
@@ -671,6 +672,11 @@ export default function ProjectPage() {
     }
   }
 
+  function handleLogout() {
+    logout();
+    router.push("/login");
+  }
+
   async function handlePush() {
     setError(null);
     setPushed(false);
@@ -735,6 +741,13 @@ export default function ProjectPage() {
               +
             </button>
           )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-md border border-ink/15 px-3 py-1.5 text-sm text-ink/70 transition hover:bg-ink/5"
+          >
+            로그아웃
+          </button>
         </div>
       </header>
 

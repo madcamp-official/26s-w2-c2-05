@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { listProjects, deleteProject, type Project } from "@/lib/projects";
+import { listProjects, deleteProject, leaveProject, type Project } from "@/lib/projects";
 import { connectGithub, disconnectGithub, getGithubStatus } from "@/lib/auth";
 import { getQuota } from "@/lib/quota";
 
@@ -60,6 +60,16 @@ export default function Sidebar() {
     }
   }
 
+  async function handleLeaveProject(projectId: string) {
+    if (!confirm("이 프로젝트에서 나가시겠습니까?")) return;
+    try {
+      await leaveProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   function renderProjectLink(project: Project) {
     const href = `/project/${project.id}`;
     const isActive = pathname === href;
@@ -76,11 +86,20 @@ export default function Sidebar() {
         >
           {project.name}
         </Link>
-        {project.role === "owner" && (
+        {project.role === "owner" ? (
           <button
             type="button"
             onClick={() => handleDeleteProject(project.id)}
             aria-label="프로젝트 삭제"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-ink/40 transition hover:bg-red-50 hover:text-red-600"
+          >
+            ×
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => handleLeaveProject(project.id)}
+            aria-label="프로젝트 나가기"
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-ink/40 transition hover:bg-red-50 hover:text-red-600"
           >
             ×

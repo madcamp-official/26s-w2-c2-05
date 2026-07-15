@@ -146,6 +146,17 @@ export async function deleteProject(id: string): Promise<void> {
   }
 }
 
+export async function leaveProject(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}/leave`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? "프로젝트 나가기에 실패했습니다");
+  }
+}
+
 export async function pushToGithub(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/projects/${id}/push`, {
     method: "POST",

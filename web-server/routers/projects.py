@@ -323,6 +323,23 @@ def delete_project(
     return {"ok": True}
 
 
+@router.post("/projects/{project_id}/leave")
+def leave_project(
+    project_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    member = db.get(ProjectMember, (project_id, user.user_id))
+    if member is None:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    if member.role == "owner":
+        raise HTTPException(status_code=400, detail="owner는 나갈 수 없습니다. 프로젝트를 삭제해주세요")
+    db.delete(member)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/projects/{project_id}/invite")
 def invite_member(
     project_id: str,
