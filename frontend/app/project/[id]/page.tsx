@@ -120,8 +120,20 @@ export default function ProjectPage() {
 
   const activeRecType =
     editorTab === "content" ? "claude_md" : editorTab === "hooks" ? "hook" : "skill";
-  const visiblePersonalRecs = personalRecs.filter((rec) => rec.type === activeRecType);
-  const visibleTeamRecs = teamRecs.filter((rec) => rec.type === activeRecType);
+  const visiblePersonalRecs = personalRecs
+    .filter((rec) => rec.type === activeRecType)
+    .sort((a, b) => {
+      const aApplied = a.applied || pendingAppliedPersonalIds.has(a.id);
+      const bApplied = b.applied || pendingAppliedPersonalIds.has(b.id);
+      return Number(aApplied) - Number(bApplied);
+    });
+  const visibleTeamRecs = teamRecs
+    .filter((rec) => rec.type === activeRecType)
+    .sort((a, b) => {
+      const aApplied = a.applied || pendingAppliedGroupIds.has(a.id);
+      const bApplied = b.applied || pendingAppliedGroupIds.has(b.id);
+      return Number(aApplied) - Number(bApplied);
+    });
 
   useEffect(() => {
     const token = localStorage.getItem("access_token");
