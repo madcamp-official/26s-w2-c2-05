@@ -1095,7 +1095,7 @@ export default function ProjectPage() {
                         className="w-64 flex-shrink-0 rounded-lg border border-ink/10 bg-white p-3 shadow-sm"
                       >
                         <p className="text-sm text-ink/80">{rec.payload.reason}</p>
-                        <code className="mt-2 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
+                        <code className="mt-2 block break-words rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
                           {rec.type === "claude_md"
                             ? (rec.payload as ClaudeMdPayload).suggested_text
                             : rec.type === "hook"
@@ -1133,7 +1133,7 @@ export default function ProjectPage() {
                       <p className="text-xs text-ink/50">
                         {rec.affected_members}명에게서 나온 규칙
                       </p>
-                      <code className="mt-1 block rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
+                      <code className="mt-1 block break-words rounded bg-orange-light/40 px-2 py-1 text-xs text-ink/70">
                         {rec.representative_text}
                       </code>
                       <button
