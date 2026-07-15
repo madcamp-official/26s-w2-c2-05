@@ -497,6 +497,7 @@ export default function ProjectPage() {
         setSelectedSkillBase(updated);
         const latest = await listRevisions(projectId);
         setRevisions(latest);
+        window.location.reload();
         return;
       }
 
@@ -548,6 +549,7 @@ export default function ProjectPage() {
           });
           setPersonalRecs(await getMyRecommendations(projectId));
         }
+        window.location.reload();
         return;
       }
 
