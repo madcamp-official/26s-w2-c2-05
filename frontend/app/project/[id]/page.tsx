@@ -693,7 +693,15 @@ export default function ProjectPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-10">
+    <div className="relative">
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="absolute right-6 top-6 rounded-md border border-ink/15 px-3 py-1.5 text-sm text-ink/70 transition hover:bg-ink/5"
+      >
+        로그아웃
+      </button>
+      <main className="mx-auto max-w-7xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           {editingName ? (
@@ -741,13 +749,6 @@ export default function ProjectPage() {
               +
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="rounded-md border border-ink/15 px-3 py-1.5 text-sm text-ink/70 transition hover:bg-ink/5"
-          >
-            로그아웃
-          </button>
         </div>
       </header>
 
@@ -1250,6 +1251,7 @@ export default function ProjectPage() {
           </div>
         </div>
       )}
-    </main>
+      </main>
+    </div>
   );
 }
