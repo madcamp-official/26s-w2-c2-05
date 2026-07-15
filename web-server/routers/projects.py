@@ -146,7 +146,9 @@ async def update_project_content(
     )
     db.commit()
     db.refresh(project)
-    await manager.broadcast_content_updated(project_id, "content", user.username)
+    await manager.broadcast_content_updated(
+        project_id, "content", user.username, exclude_user_id=user.user_id
+    )
     return _to_project_out(project, member.role)
 
 @router.post("/projects/{project_id}/onboarding", response_model=ProjectOut)
@@ -209,7 +211,9 @@ async def update_project_hooks(
     )
     db.commit()
     db.refresh(project)
-    await manager.broadcast_content_updated(project_id, "hooks", user.username)
+    await manager.broadcast_content_updated(
+        project_id, "hooks", user.username, exclude_user_id=user.user_id
+    )
     return _to_project_out(project, member.role)
 
 

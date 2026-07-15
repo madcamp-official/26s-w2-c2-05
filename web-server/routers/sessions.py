@@ -249,7 +249,7 @@ async def apply_recommendation_group(
     db.commit()
     if created_skill is not None:
         await manager.broadcast_skill_changed(
-            project_id, "created", created_skill.id, user.username
+            project_id, "created", created_skill.id, user.username, exclude_user_id=user.user_id
         )
     return {"ok": True}
 
@@ -325,7 +325,7 @@ async def apply_personal_recommendation(
     db.commit()
     if created_skill is not None:
         await manager.broadcast_skill_changed(
-            project_id, "created", created_skill.id, user.username
+            project_id, "created", created_skill.id, user.username, exclude_user_id=user.user_id
         )
     return {"ok": True}
 

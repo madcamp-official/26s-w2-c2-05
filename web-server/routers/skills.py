@@ -116,7 +116,9 @@ async def update_skill(
     )
     db.commit()
     db.refresh(skill)
-    await manager.broadcast_skill_changed(project_id, "updated", skill.id, user.username)
+    await manager.broadcast_skill_changed(
+        project_id, "updated", skill.id, user.username, exclude_user_id=user.user_id
+    )
     return _to_skill_out(skill)
 
 
@@ -134,5 +136,7 @@ async def delete_skill(
         raise HTTPException(status_code=404, detail="스킬을 찾을 수 없습니다")
     db.delete(skill)
     db.commit()
-    await manager.broadcast_skill_changed(project_id, "deleted", skill_id, user.username)
+    await manager.broadcast_skill_changed(
+        project_id, "deleted", skill_id, user.username, exclude_user_id=user.user_id
+    )
     return {"ok": True}

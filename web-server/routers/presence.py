@@ -41,17 +41,26 @@ class ConnectionManager:
             await ws.send_json({"online_users": online_users})
 
     async def broadcast_content_updated(
-        self, project_id: str, target: str, updated_by: str
+        self, project_id: str, target: str, updated_by: str, exclude_user_id: int | None = None
     ) -> None:
-        for _, ws in self._connections.get(project_id, []):
+        for u, ws in self._connections.get(project_id, []):
+            if u.user_id == exclude_user_id:
+                continue
             await ws.send_json(
                 {"type": "content_updated", "target": target, "updated_by": updated_by}
             )
 
     async def broadcast_skill_changed(
-        self, project_id: str, action: str, skill_id: str, updated_by: str
+        self,
+        project_id: str,
+        action: str,
+        skill_id: str,
+        updated_by: str,
+        exclude_user_id: int | None = None,
     ) -> None:
-        for _, ws in self._connections.get(project_id, []):
+        for u, ws in self._connections.get(project_id, []):
+            if u.user_id == exclude_user_id:
+                continue
             await ws.send_json(
                 {
                     "type": "skill_changed",
