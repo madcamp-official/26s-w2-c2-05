@@ -86,7 +86,25 @@ def test_upload_with_no_patterns_skips_ai_call(client, db_session, monkeypatch):
     assert resp.json()["personal_recommendations"] == []
 
 
-def test_reupload_replaces_prior_recommendations(client, db_session, monkeypatch):
+async def _fake_analyze_lint(pattern_summary, client=None):
+    return {
+        "candidates": [
+            {
+                "type": "hook",
+                "event": "PostToolUse",
+                "matcher": "Bash",
+                "command": "npm lint",
+                "reason": "린트를 항상 직접 실행하셨어요.",
+                "confidence": "high",
+            }
+        ],
+        "remaining_rpd": 499,
+    }
+
+
+def test_reupload_with_same_pattern_updates_existing_recommendation_not_duplicate(
+    client, db_session, monkeypatch
+):
     monkeypatch.setattr(ai_client, "analyze", _fake_analyze)
     owner, owner_token = make_user_and_token(db_session, "owner")
     project_id = _create_project(client, owner_token)
@@ -103,14 +121,46 @@ def test_reupload_replaces_prior_recommendations(client, db_session, monkeypatch
         headers=auth_headers(owner_token),
     )
 
+    # 세션 기록 자체는 재업로드해도 지워지지 않고 쌓인다 (히스토리 보존)
     sessions = db_session.exec(
         select(models.Session).where(
             models.Session.project_id == project_id, models.Session.user_id == owner.user_id
         )
     ).all()
+    assert len(sessions) == 2
+
+    # 같은 그룹으로 매칭되는 추천은 새로 추가되지 않고 기존 row가 갱신된다
     recs = db_session.exec(select(models.PersonalRecommendation)).all()
-    assert len(sessions) == 1
     assert len(recs) == 1
+    assert recs[0].session_id == sessions[-1].id
+
+
+def test_reupload_with_different_pattern_keeps_prior_unmatched_recommendation(
+    client, db_session, monkeypatch
+):
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    project_id = _create_project(client, owner_token)
+    file_content = _jsonl_with_repeated_bash("npm test", 5)
+
+    monkeypatch.setattr(ai_client, "analyze", _fake_analyze)
+    client.post(
+        f"/projects/{project_id}/sessions",
+        files={"file": ("s1.jsonl", io.BytesIO(file_content), "application/jsonl")},
+        headers=auth_headers(owner_token),
+    )
+
+    monkeypatch.setattr(ai_client, "analyze", _fake_analyze_lint)
+    client.post(
+        f"/projects/{project_id}/sessions",
+        files={"file": ("s2.jsonl", io.BytesIO(file_content), "application/jsonl")},
+        headers=auth_headers(owner_token),
+    )
+
+    me_resp = client.get(
+        f"/projects/{project_id}/recommendations/me", headers=auth_headers(owner_token)
+    )
+    commands = {r["payload"]["command"] for r in me_resp.json()}
+    assert commands == {"npm test", "npm lint"}
 
 
 def test_upload_propagates_429_when_quota_exceeded(client, db_session, monkeypatch):

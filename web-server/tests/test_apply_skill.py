@@ -90,6 +90,55 @@ def test_apply_team_skill_group_creates_skill(client, db_session, monkeypatch):
     assert skills_resp.json()[0]["name"] == "run-migrations"
 
 
+def test_reupload_of_unrelated_pattern_does_not_break_team_skill_apply(
+    client, db_session, monkeypatch
+):
+    # 회귀 테스트: 예전에는 재업로드마다 이전 세션/PersonalRecommendation을
+    # 통째로 지웠어서, 팀원들이 관계없는 패턴을 재업로드하면 이 그룹을 만든
+    # PersonalRecommendation이 전부 사라지고 apply 시 스킬이 조용히
+    # 안 만들어지는 버그가 있었다 (200 OK인데 skill 미생성).
+    from .test_sessions import _fake_analyze as _fake_analyze_hook
+
+    monkeypatch.setattr(ai_client, "analyze", _fake_analyze_skill)
+    monkeypatch.setattr(ai_client, "embed", _fake_embed)
+    owner, owner_token = make_user_and_token(db_session, "owner")
+    member, member_token = make_user_and_token(db_session, "member")
+    project_id = _create_project(client, owner_token)
+    client.post(
+        f"/projects/{project_id}/invite",
+        json={"username": member.username},
+        headers=auth_headers(owner_token),
+    )
+    _upload_and_get_recommendation_id(client, project_id, owner_token)
+    _upload_and_get_recommendation_id(client, project_id, member_token)
+
+    team_resp = client.get(
+        f"/projects/{project_id}/recommendations/team", headers=auth_headers(owner_token)
+    )
+    group_id = team_resp.json()[0]["id"]
+
+    monkeypatch.setattr(ai_client, "analyze", _fake_analyze_hook)
+    file_content = _jsonl_with_repeated_bash("npm test", 5)
+    for token in (owner_token, member_token):
+        client.post(
+            f"/projects/{project_id}/sessions",
+            files={"file": ("s2.jsonl", io.BytesIO(file_content), "application/jsonl")},
+            headers=auth_headers(token),
+        )
+
+    apply_resp = client.post(
+        f"/projects/{project_id}/recommendation-groups/{group_id}/apply",
+        headers=auth_headers(owner_token),
+    )
+    assert apply_resp.status_code == 200
+
+    skills_resp = client.get(
+        f"/projects/{project_id}/skills", headers=auth_headers(owner_token)
+    )
+    assert len(skills_resp.json()) == 1
+    assert skills_resp.json()[0]["name"] == "run-migrations"
+
+
 def test_apply_rejects_malicious_skill_name(client, db_session, monkeypatch):
     async def fake_analyze_malicious_skill(pattern_summary, client=None):
         return {

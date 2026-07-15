@@ -576,10 +576,18 @@ CORS 설정도 통째로 불필요해짐(브라우저는 항상 같은 origin에
       위험 — 병합 로직이 유사도만 보고 내용의 상충 여부는 판단하지 않음. 다수결로
       대표 문구를 뽑으면 소수 의견 팀원의 취향과 반대되는 규칙이 "팀 공통
       규칙"으로 자동 반영될 수 있음
-- [ ] 멤버가 세션을 재업로드했는데 이전에 있던 패턴이 더 이상 나타나지 않으면,
-      그 멤버가 예전에 합류했던 그룹의 `GroupMembership`이 자동으로 빠지지 않음
-      (이전 세션 레코드만 삭제되고 멤버십은 그대로 남음) — 승격된 그룹의
-      `affected_members` 수가 실제보다 부풀려질 수 있음
+- [x] **(2026-07-15 해결)** 멤버가 세션을 재업로드하면 이전 `Session`/
+      `PersonalRecommendation`을 통째로 지우던 방식(`_replace_prior_session`)이
+      원인이었음 — `GroupMembership`은 안 지워지는데 그 근거였던 세션/추천만
+      사라지면서 고아 멤버십이 남고, 팀 skill 추천 적용 시 대표 `PersonalRecommendation`을
+      못 찾아 `applied=True`만 찍히고 스킬은 조용히 안 만들어지는 버그로 이어졌음.
+      해결: 재업로드해도 세션/추천을 삭제하지 않고, 같은 `(user_id, group_id)`로
+      매칭되는 추천만 upsert(최신 내용으로 갱신)하도록 변경 — `GroupMembership`이
+      이미 하던 upsert 패턴과 동일. 매칭 안 된 이전 추천은 그대로 남아 "My" 탭에서
+      계속 보임(검토 전에 사라지지 않음). `web-server/routers/sessions.py`,
+      회귀 테스트: `test_sessions.py::test_reupload_with_same_pattern_updates_existing_recommendation_not_duplicate`,
+      `test_sessions.py::test_reupload_with_different_pattern_keeps_prior_unmatched_recommendation`,
+      `test_apply_skill.py::test_reupload_of_unrelated_pattern_does_not_break_team_skill_apply`
 
 ### 섹션 5 — 프롬프트 설계 원칙
 - [ ] 한 번의 Gemini 호출에 얼마나 많은 일(분류+이유 설명+커맨드/문구 생성+

@@ -70,7 +70,6 @@ async def upload_session(
     pattern_summary = extract_pattern_summary(jsonl_text)
 
     if pattern_summary is None:
-        _replace_prior_session(db, project_id, user.user_id)
         session = SessionModel(
             project_id=project_id, user_id=user.user_id, status="no_patterns"
         )
@@ -91,7 +90,6 @@ async def upload_session(
     except httpx.HTTPStatusError:
         raise HTTPException(status_code=503, detail="잠시 후 다시 시도해주세요")
 
-    _replace_prior_session(db, project_id, user.user_id)
     session = SessionModel(project_id=project_id, user_id=user.user_id, status="processed")
     db.add(session)
     db.commit()
@@ -125,18 +123,34 @@ async def upload_session(
             )
             updated_groups.append(group)
 
-        rec = PersonalRecommendation(
-            session_id=session.id,
-            user_id=user.user_id,
-            type=candidate["type"],
-            payload=json.dumps(candidate, ensure_ascii=False),
-            group_id=group.id if group is not None else None,
+        existing_rec = (
+            db.exec(
+                select(PersonalRecommendation).where(
+                    PersonalRecommendation.user_id == user.user_id,
+                    PersonalRecommendation.group_id == group.id,
+                )
+            ).first()
+            if group is not None
+            else None
         )
+        if existing_rec is not None:
+            existing_rec.session_id = session.id
+            existing_rec.type = candidate["type"]
+            existing_rec.payload = json.dumps(candidate, ensure_ascii=False)
+            rec = existing_rec
+        else:
+            rec = PersonalRecommendation(
+                session_id=session.id,
+                user_id=user.user_id,
+                type=candidate["type"],
+                payload=json.dumps(candidate, ensure_ascii=False),
+                group_id=group.id if group is not None else None,
+            )
         db.add(rec)
         db.commit()
         db.refresh(rec)
         personal_out.append(
-            RecommendationOut(id=rec.id, type=candidate["type"], payload=candidate, applied=False)
+            RecommendationOut(id=rec.id, type=candidate["type"], payload=candidate, applied=rec.applied)
         )
 
     team_groups_out = [
@@ -341,21 +355,3 @@ def _create_skill_from_payload(db: DBSession, project_id: str, payload: dict) ->
     db.add(skill)
     return skill
 
-
-def _replace_prior_session(db: DBSession, project_id: str, user_id: int) -> None:
-    old_session = db.exec(
-        select(SessionModel).where(
-            SessionModel.project_id == project_id, SessionModel.user_id == user_id
-        )
-    ).first()
-    if old_session is None:
-        return
-    old_recs = db.exec(
-        select(PersonalRecommendation).where(
-            PersonalRecommendation.session_id == old_session.id
-        )
-    ).all()
-    for rec in old_recs:
-        db.delete(rec)
-    db.delete(old_session)
-    db.commit()
