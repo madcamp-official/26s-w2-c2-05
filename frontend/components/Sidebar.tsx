@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { listProjects, deleteProject, leaveProject, type Project } from "@/lib/projects";
 import { connectGithub, disconnectGithub, getGithubStatus } from "@/lib/auth";
@@ -17,6 +17,7 @@ export default function Sidebar() {
   const [remainingRpd, setRemainingRpd] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     listProjects()
@@ -55,6 +56,7 @@ export default function Sidebar() {
     try {
       await deleteProject(projectId);
       setProjects((prev) => prev.filter((p) => p.id !== projectId));
+      router.push("/");
     } catch (err) {
       setError((err as Error).message);
     }
